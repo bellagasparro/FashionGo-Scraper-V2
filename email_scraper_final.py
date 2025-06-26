@@ -213,7 +213,7 @@ def index():
 <button type="submit" class="btn btn-primary btn-lg">🚀 Find Emails</button></form>
 <div id="loading" style="display:none" class="text-center mt-4">
 <div class="spinner-border text-primary"></div><h5 class="mt-3">Finding email addresses...</h5>
-<p class="text-muted">Processing up to 20 companies for demo (production version)</p></div>
+<p class="text-muted">Processing all companies in your file - this may take a while for large files</p></div>
 <div id="results" style="display:none" class="mt-4"><div class="alert alert-success">
 <h6>✅ Processing Complete!</h6><div class="row text-center mt-3">
 <div class="col-md-4"><div style="font-size:2rem;font-weight:bold;color:#2c5aa0" id="totalCompanies">0</div><small>Companies</small></div>
@@ -286,11 +286,11 @@ def upload_file():
         if not company_column:
             return jsonify({'error': f'No company column found. Available: {list(df.columns)}'}), 400
         
-        # Process companies with production limits for stability
+        # Process all companies in the file
         results = []
-        total_companies = min(len(df), 20)  # Limit to 20 companies for production stability
+        total_companies = len(df)  # Process entire file
         
-        for index, row in df.head(total_companies).iterrows():
+        for index, row in df.iterrows():
             try:
                 company_name_val = row[company_column]
                 if pd.isna(company_name_val) or str(company_name_val).strip() == '':
