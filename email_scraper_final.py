@@ -69,7 +69,7 @@ def find_emails_on_page(url, timeout=8):
         return []
 
 def search_company_website(company_name):
-    """Search for company website using multiple search strategies with production-friendly settings"""
+    """Multi-engine search with geographic and network resilience"""
     try:
         if not company_name:
             return None
@@ -78,71 +78,138 @@ def search_company_website(company_name):
         if not clean_name:
             return None
             
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive',
-        }
-        
-        # Try simpler, more reliable search first
-        search_queries = [
-            f'{clean_name} website',
-            f'{clean_name} official',
-            f'{clean_name}'
+        # Rotate User-Agents to avoid blocking
+        user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         ]
         
-        for query in search_queries:
+        import random
+        headers = {
+            'User-Agent': random.choice(user_agents),
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        
+        # Multiple search engines and strategies
+        search_strategies = [
+            # Strategy 1: DuckDuckGo Instant Answer API
+            {
+                'name': 'DuckDuckGo API',
+                'url': f"https://api.duckduckgo.com/?q={clean_name}&format=json&no_html=1&skip_disambig=1",
+                'timeout': 5
+            },
+            # Strategy 2: DuckDuckGo Lite HTML
+            {
+                'name': 'DuckDuckGo Lite',
+                'url': f"https://lite.duckduckgo.com/lite/?q={clean_name}+website",
+                'timeout': 4
+            },
+            # Strategy 3: StartPage (Google proxy)
+            {
+                'name': 'StartPage',
+                'url': f"https://www.startpage.com/sp/search?query={clean_name}+official+website",
+                'timeout': 6
+            },
+            # Strategy 4: Bing
+            {
+                'name': 'Bing',
+                'url': f"https://www.bing.com/search?q={clean_name}+website",
+                'timeout': 5
+            }
+        ]
+        
+        for strategy in search_strategies:
             try:
-                # Use a more reliable search method - try DuckDuckGo first with shorter timeout
-                search_url = f"https://duckduckgo.com/?q={query}&format=json"
-                
-                response = requests.get(search_url, headers=headers, timeout=5)
-                if response.status_code == 200:
-                    # Try to parse JSON response
-                    try:
-                        data = response.json()
-                        if 'RelatedTopics' in data:
-                            for topic in data['RelatedTopics'][:3]:
-                                if isinstance(topic, dict) and 'FirstURL' in topic:
-                                    url = topic['FirstURL']
-                                    if url and url.startswith('http') and not any(x in url.lower() for x in ['duckduckgo.com', 'wikipedia.org']):
-                                        logger.info(f"Found website via DuckDuckGo API for {clean_name}: {url}")
-                                        return url
-                    except:
-                        pass
-                
-                # Fallback to HTML scraping with shorter timeout
-                search_url = f"https://lite.duckduckgo.com/lite/?q={query}"
-                response = requests.get(search_url, headers=headers, timeout=3)
+                logger.info(f"Trying {strategy['name']} for {clean_name}")
+                response = requests.get(strategy['url'], headers=headers, timeout=strategy['timeout'])
                 
                 if response.status_code == 200:
-                    soup = BeautifulSoup(response.content, 'html.parser')
-                    links = soup.find_all('a')
+                    # Handle JSON responses (DuckDuckGo API)
+                    if 'api.duckduckgo.com' in strategy['url']:
+                        try:
+                            data = response.json()
+                            if 'AbstractURL' in data and data['AbstractURL']:
+                                url = data['AbstractURL']
+                                if is_valid_business_url(url):
+                                    logger.info(f"Found via {strategy['name']}: {url}")
+                                    return url
+                        except:
+                            pass
                     
-                    for link in links[:5]:  # Check fewer links for speed
-                        href = link.get('href', '') if hasattr(link, 'get') else ''
-                        if isinstance(href, str) and href and href.startswith('http'):
-                            # More permissive filtering for production
-                            if not any(x in href.lower() for x in ['duckduckgo.com', 'google.com', 'bing.com']):
-                                domain = href.split('/')[2] if len(href.split('/')) > 2 else ''
-                                if '.' in domain and len(domain) > 3:
-                                    logger.info(f"Found website for {clean_name}: {href}")
-                                    return href
+                    # Handle HTML responses
+                    soup = BeautifulSoup(response.content, 'html.parser')
+                    
+                    # Extract URLs from different search engines
+                    urls = []
+                    if 'duckduckgo' in strategy['url']:
+                        urls.extend([a.get('href', '') for a in soup.find_all('a') if a.get('href')])
+                    elif 'startpage' in strategy['url']:
+                        urls.extend([a.get('href', '') for a in soup.find_all('a', class_='w-gl__result-title') if a.get('href')])
+                    elif 'bing' in strategy['url']:
+                        urls.extend([a.get('href', '') for a in soup.find_all('a') if a.get('href')])
+                    
+                    # Validate and return first good URL
+                    for url in urls[:5]:
+                        if isinstance(url, str) and is_valid_business_url(url):
+                            logger.info(f"Found via {strategy['name']}: {url}")
+                            return url
                 
-                # Small delay between attempts
-                time.sleep(0.5)
+                # Small delay between search engines
+                time.sleep(0.3)
                 
             except Exception as e:
-                logger.error(f"Search attempt failed for query '{query}': {str(e)}")
+                logger.error(f"{strategy['name']} search failed for {clean_name}: {str(e)}")
                 continue
         
-        logger.info(f"No website found for {clean_name}")
+        logger.info(f"No website found for {clean_name} across all search engines")
         return None
         
     except Exception as e:
         logger.error(f"Error searching for {company_name}: {str(e)}")
         return None
+
+def is_valid_business_url(url):
+    """Enhanced URL validation for business websites"""
+    if not url or not isinstance(url, str):
+        return False
+    
+    # Must be HTTP/HTTPS
+    if not url.startswith(('http://', 'https://')):
+        return False
+    
+    # Extract domain
+    try:
+        domain = url.split('/')[2].lower()
+    except:
+        return False
+    
+    # Must have proper domain structure
+    if '.' not in domain or len(domain) < 4:
+        return False
+    
+    # Exclude search engines, social media, and common non-business sites
+    excluded_domains = [
+        'google.com', 'bing.com', 'yahoo.com', 'duckduckgo.com', 'startpage.com',
+        'facebook.com', 'twitter.com', 'linkedin.com', 'instagram.com', 'youtube.com',
+        'wikipedia.org', 'amazon.com', 'ebay.com', 'alibaba.com', 'aliexpress.com',
+        'pinterest.com', 'tiktok.com', 'snapchat.com', 'reddit.com', 'tumblr.com'
+    ]
+    
+    for excluded in excluded_domains:
+        if excluded in domain:
+            return False
+    
+    # Prefer business-like domains
+    business_indicators = ['.com', '.net', '.org', '.biz', '.co', '.us', '.shop', '.store']
+    if any(indicator in domain for indicator in business_indicators):
+        return True
+    
+    return len(domain.split('.')) >= 2  # At least domain.tld format
 
 def find_company_email(company_name):
     """Find email for a company with production-optimized settings"""
@@ -249,6 +316,50 @@ document.getElementById('error').style.display='none';document.getElementById('f
 def health():
     return jsonify({'status': 'healthy'}), 200
 
+@app.route('/test-columns', methods=['POST'])
+def test_columns():
+    """Test endpoint to help debug column detection issues"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file uploaded'}), 400
+        
+        file = request.files['file']
+        if not file or file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        filename = secure_filename(file.filename or 'test.csv')
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], f"test_{int(time.time())}_{filename}")
+        file.save(filepath)
+        
+        try:
+            if filename.endswith('.csv'):
+                df = pd.read_csv(filepath)
+            elif filename.endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(filepath)
+            else:
+                return jsonify({'error': 'Unsupported format'}), 400
+        finally:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        
+        # Return column analysis
+        columns = list(df.columns)
+        sample_data = {}
+        for col in columns[:10]:  # First 10 columns
+            sample_data[col] = df[col].head(3).tolist()
+        
+        return jsonify({
+            'success': True,
+            'total_columns': len(columns),
+            'all_columns': columns,
+            'sample_data': sample_data,
+            'file_shape': df.shape,
+            'suggested_company_columns': [col for col in columns if any(keyword in col.lower() for keyword in ['company', 'business', 'name', 'client', 'customer', 'account', 'store', 'retailer', 'brand'])]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Analysis error: {str(e)}'}), 500
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
@@ -276,15 +387,50 @@ def upload_file():
             if os.path.exists(filepath):
                 os.remove(filepath)
         
-        # Find company column
+        # Enhanced company name column detection
         company_column = None
-        for col in ['companyName', 'shipToCompanyName', 'company_name', 'Company Name', 'Company', 'Name']:
+        possible_columns = [
+            'companyName', 'shipToCompanyName', 'company_name', 'Company Name', 'Company', 'Name',
+            'company', 'business_name', 'Business Name', 'BusinessName', 'customer_name', 'Customer Name',
+            'account_name', 'Account Name', 'AccountName', 'client_name', 'Client Name', 'ClientName',
+            'store_name', 'Store Name', 'StoreName', 'retailer_name', 'Retailer Name', 'RetailerName',
+            'brand_name', 'Brand Name', 'BrandName', 'organization', 'Organization'
+        ]
+        
+        # First try exact matches
+        for col in possible_columns:
             if col in df.columns:
                 company_column = col
+                logger.info(f"Found exact match for company column: {col}")
                 break
         
+        # If no exact match, try case-insensitive and partial matches
         if not company_column:
-            return jsonify({'error': f'No company column found. Available: {list(df.columns)}'}), 400
+            df_columns_lower = {col.lower(): col for col in df.columns}
+            for col in possible_columns:
+                if col.lower() in df_columns_lower:
+                    company_column = df_columns_lower[col.lower()]
+                    logger.info(f"Found case-insensitive match for company column: {company_column}")
+                    break
+        
+        # If still no match, look for columns containing key words
+        if not company_column:
+            for actual_col in df.columns:
+                actual_col_lower = actual_col.lower()
+                if any(keyword in actual_col_lower for keyword in ['company', 'business', 'name', 'client', 'customer', 'account', 'store', 'retailer', 'brand']):
+                    company_column = actual_col
+                    logger.info(f"Found partial match for company column: {company_column}")
+                    break
+        
+        if not company_column:
+            # Show user all available columns for debugging
+            available_columns = list(df.columns)
+            logger.error(f"No company column found. Available columns: {available_columns}")
+            return jsonify({
+                'error': f'Could not find company name column. Available columns: {available_columns}. Please ensure your file has a column with company/business names.',
+                'available_columns': available_columns,
+                'suggested_columns': possible_columns[:10]
+            }), 400
         
         # Process all companies in the file
         results = []
