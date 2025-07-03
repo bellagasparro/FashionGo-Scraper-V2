@@ -1,1 +1,1 @@
-web: python3 email_scraper_final.py 
+web: gunicorn --bind 0.0.0.0:$PORT email_scraper_final:app 

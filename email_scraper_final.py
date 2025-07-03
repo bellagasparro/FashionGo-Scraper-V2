@@ -316,6 +316,20 @@ document.getElementById('error').style.display='none';document.getElementById('f
 def health():
     return jsonify({'status': 'healthy'}), 200
 
+@app.route('/korea-test')
+def korea_test():
+    """Special endpoint for testing Korea connectivity"""
+    user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    user_agent = request.headers.get('User-Agent')
+    return jsonify({
+        'status': 'accessible_from_korea',
+        'user_ip': user_ip,
+        'user_agent': user_agent,
+        'timestamp': time.strftime('%Y-%m-%d %H:%M:%S UTC'),
+        'server_location': 'auto_detected',
+        'message': 'If you can see this, the app is accessible from Korea!'
+    })
+
 @app.route('/test-columns', methods=['POST'])
 def test_columns():
     """Test endpoint to help debug column detection issues"""
