@@ -397,6 +397,11 @@ def find_company_email(company_name):
         if subdomain_email:
             return subdomain_email[0], f"Subdomain: {subdomain_email[1]}"
         
+        # Strategy 6: Social Media Email Extraction (major success rate boost)
+        social_email = extract_email_from_social_media(company_name)
+        if social_email:
+            return social_email[0], f"Social media: {social_email[1]}"
+        
         return None, f"No emails found on {website}"
         
     except Exception as e:
@@ -479,6 +484,151 @@ def check_subdomains_for_emails(main_website, company_name):
     except Exception as e:
         logger.warning(f"Error checking subdomains: {str(e)}")
         return None
+
+def extract_email_from_social_media(company_name):
+    """Extract emails from social media profiles (Instagram, Facebook, LinkedIn, Twitter)"""
+    try:
+        logger.info(f"Checking social media for {company_name}")
+        
+        # Clean company name for social media search
+        clean_name = clean_company_name(company_name)
+        if not clean_name:
+            return None
+            
+        # Social media platforms to check
+        platforms = [
+            {
+                'name': 'Instagram',
+                'search_url': f"https://www.google.com/search?q=site:instagram.com+\"{clean_name}\"",
+                'profile_indicators': ['instagram.com/', '@'],
+                'timeout': 4
+            },
+            {
+                'name': 'Facebook', 
+                'search_url': f"https://www.google.com/search?q=site:facebook.com+\"{clean_name}\"",
+                'profile_indicators': ['facebook.com/', 'fb.com/'],
+                'timeout': 4
+            },
+            {
+                'name': 'LinkedIn',
+                'search_url': f"https://www.google.com/search?q=site:linkedin.com/company+\"{clean_name}\"",
+                'profile_indicators': ['linkedin.com/company/', 'linkedin.com/in/'],
+                'timeout': 4
+            },
+            {
+                'name': 'Twitter',
+                'search_url': f"https://www.google.com/search?q=site:twitter.com+\"{clean_name}\"",
+                'profile_indicators': ['twitter.com/', 'x.com/', '@'],
+                'timeout': 4
+            }
+        ]
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+        
+        for platform in platforms:
+            try:
+                # Search for social media profiles
+                response = requests.get(platform['search_url'], headers=headers, timeout=platform['timeout'])
+                if response.status_code == 200:
+                    # Find social media profile URLs
+                    profile_urls = extract_social_media_urls(response.text, platform['profile_indicators'], clean_name)
+                    
+                    # Check each profile for contact info
+                    for profile_url in profile_urls[:2]:  # Check top 2 profiles per platform
+                        try:
+                            email = extract_email_from_social_profile(profile_url, platform['name'])
+                            if email:
+                                logger.info(f"Found email on {platform['name']} for {company_name}: {email}")
+                                return email, f"{platform['name']} profile"
+                                
+                            time.sleep(0.5)  # Rate limiting
+                            
+                        except Exception as e:
+                            logger.warning(f"Error checking {platform['name']} profile {profile_url}: {str(e)}")
+                            continue
+                            
+                time.sleep(0.3)  # Rate limiting between platforms
+                
+            except Exception as e:
+                logger.warning(f"Error searching {platform['name']}: {str(e)}")
+                continue
+        
+        return None
+        
+    except Exception as e:
+        logger.warning(f"Error in social media extraction: {str(e)}")
+        return None
+
+def extract_social_media_urls(html_content, indicators, company_name):
+    """Extract social media profile URLs from search results"""
+    urls = []
+    
+    # Find URLs in the HTML that match social media patterns
+    url_pattern = re.compile(r'https?://(?:www\.)?([^/\s]+(?:/[^\s"\'<>]*)?)', re.IGNORECASE)
+    matches = url_pattern.findall(html_content)
+    
+    company_keywords = company_name.lower().split()
+    
+    for match in matches:
+        full_url = f"https://{match}"
+        
+        # Check if URL is from target platform
+        if any(indicator in full_url.lower() for indicator in indicators):
+            # Prioritize URLs that seem to match the company name
+            if any(keyword in full_url.lower() for keyword in company_keywords if len(keyword) > 3):
+                urls.insert(0, full_url)  # Priority placement
+            else:
+                urls.append(full_url)
+    
+    return urls[:5]  # Return top 5 URLs
+
+def extract_email_from_social_profile(profile_url, platform_name):
+    """Extract email from individual social media profile"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        }
+        
+        response = requests.get(profile_url, headers=headers, timeout=5, allow_redirects=True)
+        response.raise_for_status()
+        
+        # Use multiple email patterns optimized for social media
+        social_email_patterns = [
+            EMAIL_PATTERN,  # Standard pattern
+            re.compile(r'contact[:\s]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', re.IGNORECASE),
+            re.compile(r'email[:\s]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', re.IGNORECASE),
+            re.compile(r'reach[:\s]+us[:\s]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', re.IGNORECASE),
+            re.compile(r'business[:\s]+inquiries[:\s]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', re.IGNORECASE),
+        ]
+        
+        for pattern in social_email_patterns:
+            emails = pattern.findall(response.text.lower())
+            if emails:
+                # Filter and validate emails
+                for email in emails:
+                    if is_valid_email_format(email) and not is_fake_email(email):
+                        return email
+        
+        return None
+        
+    except Exception as e:
+        logger.warning(f"Error extracting from {platform_name} profile {profile_url}: {str(e)}")
+        return None
+
+def is_fake_email(email):
+    """Check if email appears to be fake or template"""
+    fake_indicators = [
+        'example.com', 'test.com', 'placeholder', 'yoursite', 'yourdomain',
+        'samplewebsite', 'domain.com', 'email.com', 'website.com',
+        'noreply', 'no-reply', 'donotreply', 'unsubscribe'
+    ]
+    
+    email_lower = email.lower()
+    return any(indicator in email_lower for indicator in fake_indicators)
 
 @app.route('/')
 def index():
