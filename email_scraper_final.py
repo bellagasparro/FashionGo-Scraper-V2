@@ -398,9 +398,13 @@ def find_company_email(company_name):
             return subdomain_email[0], f"Subdomain: {subdomain_email[1]}"
         
         # Strategy 6: Social Media Email Extraction (major success rate boost)
-        social_email = extract_email_from_social_media(company_name)
-        if social_email:
-            return social_email[0], f"Social media: {social_email[1]}"
+        try:
+            social_email = extract_email_from_social_media(company_name)
+            if social_email:
+                return social_email[0], f"Social media: {social_email[1]}"
+        except Exception as e:
+            logger.warning(f"Social media extraction failed for {company_name}: {str(e)}")
+            # Continue without failing
         
         return None, f"No emails found on {website}"
         
@@ -684,7 +688,20 @@ document.getElementById('error').style.display='none';document.getElementById('f
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'healthy'}), 200
+    try:
+        # Quick health check with minimal dependencies
+        return jsonify({
+            'status': 'healthy',
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S UTC'),
+            'version': '2.0-social-media',
+            'app': 'fashiongo-email-scraper'
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy', 
+            'error': str(e),
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S UTC')
+        }), 500
 
 @app.route('/korea-test')
 def korea_test():
