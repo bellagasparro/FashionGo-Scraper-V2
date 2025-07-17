@@ -163,31 +163,58 @@ def search_company_website(company_name):
         return None
 
 def generate_direct_website_guesses(company_name):
-    """Generate likely website URLs based on company name"""
+    """Generate comprehensive website URL guesses for maximum success rate"""
     urls = []
     
     # Clean the name for URL generation
     clean = re.sub(r'[^a-zA-Z0-9\s]', '', company_name.lower())
-    clean = re.sub(r'\s+', '', clean)  # Remove all spaces
+    clean_no_spaces = re.sub(r'\s+', '', clean)  # Remove all spaces
     
-    # Common patterns
-    if clean and len(clean) > 2:
-        urls.extend([
-            f"https://www.{clean}.com",
-            f"https://{clean}.com",
-            f"https://www.{clean}.net",
-            f"https://{clean}.net",
-            f"https://www.{clean}.org",
-        ])
+    # Get first word and abbreviation
+    words = clean.split()
+    first_word = words[0] if words else clean
+    abbreviation = ''.join([word[0] for word in words if len(word) > 0])[:6]  # Max 6 chars
+    
+    # Base domains to try
+    base_names = []
+    
+    if clean_no_spaces and len(clean_no_spaces) > 2:
+        base_names.append(clean_no_spaces)
         
-        # Try with dashes for multi-word companies
-        if ' ' in company_name:
-            dash_name = re.sub(r'[^a-zA-Z0-9\s]', '', company_name.lower())
-            dash_name = re.sub(r'\s+', '-', dash_name.strip())
-            urls.extend([
-                f"https://www.{dash_name}.com",
-                f"https://{dash_name}.com",
-            ])
+    # Add dash variations for multi-word companies
+    if len(words) > 1:
+        dash_name = '-'.join(words)
+        base_names.append(dash_name)
+        
+        # Try first word only
+        if len(first_word) > 3:
+            base_names.append(first_word)
+    
+    # Add abbreviation if meaningful
+    if len(abbreviation) >= 2 and abbreviation != clean_no_spaces:
+        base_names.append(abbreviation)
+        
+    # Add "the" prefix removal
+    if clean.startswith('the '):
+        no_the = clean[4:].replace(' ', '')
+        if no_the and len(no_the) > 2:
+            base_names.append(no_the)
+    
+    # Comprehensive TLD list (major success rate boost)
+    tlds = [
+        '.com', '.net', '.org', '.biz', '.co', '.us', '.io', '.co.uk',
+        '.info', '.shop', '.store', '.online', '.website', '.site',
+        '.business', '.company', '.corp', '.inc', '.ltd'
+    ]
+    
+    # Generate all combinations
+    for base_name in base_names:
+        if base_name and len(base_name) > 1:
+            for tld in tlds:
+                urls.extend([
+                    f"https://www.{base_name}{tld}",
+                    f"https://{base_name}{tld}"
+                ])
     
     return urls
 
@@ -259,6 +286,37 @@ def is_valid_business_url(url):
     
     return len(domain.split('.')) >= 2  # At least domain.tld format
 
+def guess_email_format(company_name, website_url):
+    """Guess common email formats when website found but no emails displayed"""
+    try:
+        # Extract domain from website URL
+        domain = website_url.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
+        
+        # Common business email prefixes (ordered by likelihood)
+        email_prefixes = [
+            'info', 'contact', 'hello', 'sales', 'support', 'inquiry',
+            'business', 'office', 'admin', 'service', 'help', 'mail',
+            'general', 'team', 'welcome', 'connect', 'reach'
+        ]
+        
+        # Try each prefix with the domain
+        for prefix in email_prefixes:
+            candidate_email = f"{prefix}@{domain}"
+            
+            # Quick validation check (could be enhanced with actual email verification)
+            if is_valid_email_format(candidate_email):
+                return candidate_email
+                
+        return None
+        
+    except Exception as e:
+        logger.warning(f"Error guessing email format: {str(e)}")
+        return None
+
+def is_valid_email_format(email):
+    """Basic email format validation"""
+    return '@' in email and '.' in email.split('@')[-1] and len(email.split('@')) == 2
+
 def find_company_email(company_name):
     """Find email for a company with production-optimized settings"""
     try:
@@ -281,10 +339,20 @@ def find_company_email(company_name):
             logger.info(f"Found email on main page for {company_name}: {emails[0]}")
             return emails[0], f"Main page: {website}"
         
-        # Try fewer contact pages for faster processing
+        # Try more comprehensive contact pages for higher success rate
         if isinstance(website, str):
             base_url = website.rstrip('/')
-            contact_pages = ['/contact', '/contact-us', '/about']  # Reduced list for production
+            
+            # Comprehensive contact page list (major success rate boost)
+            contact_pages = [
+                '/contact', '/contact-us', '/contact_us', '/contactus',
+                '/about', '/about-us', '/about_us', '/aboutus',
+                '/support', '/help', '/customer-service', '/customer_service',
+                '/info', '/information', '/reach-us', '/reach_us',
+                '/get-in-touch', '/touch', '/connect', '/feedback',
+                '/sales', '/business', '/office', '/headquarters',
+                '/team', '/staff', '/management', '/leadership'
+            ]
             
             for page in contact_pages:
                 try:
@@ -295,18 +363,122 @@ def find_company_email(company_name):
                         return emails[0], f"Contact page: {contact_url}"
                     
                     # Shorter delay for production
-                    time.sleep(0.3)
+                    time.sleep(0.2)
                     
                 except Exception as e:
-                    logger.error(f"Error checking contact page {contact_url}: {str(e)}")
+                    logger.warning(f"Error checking contact page {contact_url}: {str(e)}")
+                    continue
+                    
+            # Strategy 4: Dynamic contact link detection (success rate boost)
+            dynamic_contact_links = find_contact_links(website)
+            for contact_link in dynamic_contact_links:
+                try:
+                    emails = find_emails_on_page(contact_link)
+                    if emails:
+                        logger.info(f"Found email on dynamic contact page for {company_name}: {emails[0]}")
+                        return emails[0], f"Dynamic contact page: {contact_link}"
+                        
+                    time.sleep(0.2)
+                    
+                except Exception as e:
+                    logger.warning(f"Error checking dynamic contact page {contact_link}: {str(e)}")
                     continue
         
         logger.info(f"No emails found for {company_name} on {website}")
+        
+        # Strategy 3: Email format guessing if website found but no emails (success rate boost)
+        guessed_email = guess_email_format(company_name, website)
+        if guessed_email:
+            logger.info(f"Guessed email format for {company_name}: {guessed_email}")
+            return guessed_email, f"Email format guess: {website}"
+        
+        # Strategy 5: Subdomain checking (final fallback)
+        subdomain_email = check_subdomains_for_emails(website, company_name)
+        if subdomain_email:
+            return subdomain_email[0], f"Subdomain: {subdomain_email[1]}"
+        
         return None, f"No emails found on {website}"
         
     except Exception as e:
         logger.error(f"Error finding email for {company_name}: {str(e)}")
         return None, f"Error: {str(e)}"
+
+def find_contact_links(website_url):
+    """Dynamically find contact page links from homepage"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        }
+        
+        response = requests.get(website_url, headers=headers, timeout=5, allow_redirects=True)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+        contact_links = []
+        
+        # Look for links containing contact-related keywords
+        contact_keywords = [
+            'contact', 'about', 'support', 'help', 'reach', 'touch', 'connect',
+            'info', 'team', 'staff', 'office', 'location', 'feedback', 'inquiry'
+        ]
+        
+        # Find all links
+        for link in soup.find_all('a', href=True):
+            href = link.get('href')
+            if not href or not isinstance(href, str):
+                continue
+                
+            link_text = link.get_text(strip=True).lower()
+            
+            # Check if link or text contains contact keywords
+            for keyword in contact_keywords:
+                if keyword in href.lower() or keyword in link_text:
+                    # Convert relative URLs to absolute
+                    if href.startswith('/'):
+                        full_url = website_url.rstrip('/') + href
+                    elif href.startswith('http'):
+                        full_url = href
+                    else:
+                        continue
+                        
+                    if full_url not in contact_links:
+                        contact_links.append(full_url)
+                    break
+        
+        return contact_links[:10]  # Return top 10 contact links
+        
+    except Exception as e:
+        logger.warning(f"Error finding contact links on {website_url}: {str(e)}")
+        return []
+
+def check_subdomains_for_emails(main_website, company_name):
+    """Check common business subdomains for contact emails"""
+    try:
+        # Extract base domain
+        base_domain = main_website.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
+        
+        # Common business subdomains
+        subdomains = ['blog', 'support', 'help', 'info', 'contact', 'about', 'team']
+        
+        for subdomain in subdomains:
+            try:
+                subdomain_url = f"https://{subdomain}.{base_domain}"
+                if test_website_exists(subdomain_url):
+                    emails = find_emails_on_page(subdomain_url)
+                    if emails:
+                        logger.info(f"Found email on subdomain for {company_name}: {emails[0]}")
+                        return emails[0], subdomain_url
+                        
+                time.sleep(0.3)
+                
+            except Exception:
+                continue
+                
+        return None
+        
+    except Exception as e:
+        logger.warning(f"Error checking subdomains: {str(e)}")
+        return None
 
 @app.route('/')
 def index():
