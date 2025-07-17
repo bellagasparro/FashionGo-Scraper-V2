@@ -18,4 +18,4 @@ RUN mkdir -p uploads
 EXPOSE 5000
 
 # Run with gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "email_scraper_final:app"] 
+CMD gunicorn --bind 0.0.0.0:$PORT minimal_test:app 
