@@ -8,6 +8,7 @@ import time
 import tempfile
 import logging
 from werkzeug.utils import secure_filename
+import platform
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
@@ -30,8 +31,8 @@ def clean_company_name(name):
     
     return name if name else None
 
-def find_emails_on_page(url, timeout=8):
-    """Find email addresses on a webpage with production-optimized settings"""
+def find_emails_on_page(url, timeout=5):
+    """Enhanced email extraction from webpages with better filtering"""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
@@ -43,33 +44,69 @@ def find_emails_on_page(url, timeout=8):
         response = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         response.raise_for_status()
         
-        # Find emails in the HTML content
-        emails = set(EMAIL_PATTERN.findall(response.text))
+        # Find emails using multiple patterns
+        text_content = response.text.lower()
         
-        # Improved filtering for production
-        filtered_emails = []
-        for email in emails:
-            email_lower = email.lower()
-            # Filter out obvious fake emails
-            if not any(x in email_lower for x in [
+        # Enhanced email patterns
+        email_patterns = [
+            EMAIL_PATTERN,  # Standard pattern
+            re.compile(r'mailto:([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', re.IGNORECASE),
+            re.compile(r'contact[^@]*?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', re.IGNORECASE),
+            re.compile(r'info[^@]*?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', re.IGNORECASE),
+        ]
+        
+        all_emails = set()
+        for pattern in email_patterns:
+            emails = pattern.findall(text_content)
+            all_emails.update(emails)
+        
+        # Prioritize business emails
+        business_emails = []
+        other_emails = []
+        
+        for email in all_emails:
+            email_lower = email.lower().strip()
+            
+            # Skip obvious fake/template emails
+            if any(x in email_lower for x in [
                 'example.com', 'test.com', 'placeholder', 'yoursite', 'yourdomain',
-                'noreply', 'no-reply', 'donotreply', 'admin@admin', 'test@test'
+                'samplewebsite', 'domain.com', 'email.com', 'website.com',
+                'admin@admin', 'test@test', 'user@domain'
             ]):
-                # Basic domain validation
-                if '@' in email and '.' in email.split('@')[1]:
-                    filtered_emails.append(email)
+                continue
+            
+            # Skip common non-business emails  
+            if any(x in email_lower for x in [
+                'noreply', 'no-reply', 'donotreply', 'unsubscribe', 'bounce',
+                'mailer-daemon', 'postmaster', 'root@', 'webmaster'
+            ]):
+                continue
+                
+            # Basic domain validation
+            if '@' not in email_lower or '.' not in email_lower.split('@')[-1]:
+                continue
+                
+            # Prioritize business-looking emails
+            if any(x in email_lower for x in [
+                'info@', 'contact@', 'sales@', 'support@', 'hello@', 'inquiry@',
+                'business@', 'office@', 'admin@', 'service@', 'help@'
+            ]):
+                business_emails.append(email)
+            else:
+                other_emails.append(email)
         
-        return list(set(filtered_emails))
+        # Return business emails first, then others
+        return business_emails + other_emails
     
     except requests.exceptions.Timeout:
-        logger.error(f"Timeout fetching {url}")
+        logger.warning(f"Timeout fetching {url}")
         return []
     except Exception as e:
-        logger.error(f"Error fetching {url}: {str(e)}")
+        logger.warning(f"Error fetching {url}: {str(e)}")
         return []
 
 def search_company_website(company_name):
-    """Multi-engine search with geographic and network resilience"""
+    """Enhanced multi-strategy website search with direct guessing and fallbacks"""
     try:
         if not company_name:
             return None
@@ -78,100 +115,111 @@ def search_company_website(company_name):
         if not clean_name:
             return None
             
-        # Rotate User-Agents to avoid blocking
-        user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        ]
+        # Strategy 1: Direct Website Guessing (Most Reliable)
+        direct_urls = generate_direct_website_guesses(clean_name)
+        for url in direct_urls:
+            if test_website_exists(url):
+                logger.info(f"Found via direct guess: {url}")
+                return url
         
-        import random
-        headers = {
-            'User-Agent': random.choice(user_agents),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-        }
-        
-        # Multiple search engines and strategies
-        search_strategies = [
-            # Strategy 1: DuckDuckGo Instant Answer API
-            {
-                'name': 'DuckDuckGo API',
-                'url': f"https://api.duckduckgo.com/?q={clean_name}&format=json&no_html=1&skip_disambig=1",
-                'timeout': 5
-            },
-            # Strategy 2: DuckDuckGo Lite HTML
-            {
-                'name': 'DuckDuckGo Lite',
-                'url': f"https://lite.duckduckgo.com/lite/?q={clean_name}+website",
-                'timeout': 4
-            },
-            # Strategy 3: StartPage (Google proxy)
-            {
-                'name': 'StartPage',
-                'url': f"https://www.startpage.com/sp/search?query={clean_name}+official+website",
-                'timeout': 6
-            },
-            # Strategy 4: Bing
+        # Strategy 2: Simplified Search Engines (Faster & More Reliable)
+        search_engines = [
             {
                 'name': 'Bing',
-                'url': f"https://www.bing.com/search?q={clean_name}+website",
-                'timeout': 5
+                'url': f"https://www.bing.com/search?q=\"{clean_name}\"+site%3A{clean_name.replace(' ', '')}.com",
+                'timeout': 3
+            },
+            {
+                'name': 'Yahoo',
+                'url': f"https://search.yahoo.com/search?p=\"{clean_name}\"+website",
+                'timeout': 3
             }
         ]
         
-        for strategy in search_strategies:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+        
+        for engine in search_engines:
             try:
-                logger.info(f"Trying {strategy['name']} for {clean_name}")
-                response = requests.get(strategy['url'], headers=headers, timeout=strategy['timeout'])
-                
+                response = requests.get(engine['url'], headers=headers, timeout=engine['timeout'])
                 if response.status_code == 200:
-                    # Handle JSON responses (DuckDuckGo API)
-                    if 'api.duckduckgo.com' in strategy['url']:
-                        try:
-                            data = response.json()
-                            if 'AbstractURL' in data and data['AbstractURL']:
-                                url = data['AbstractURL']
-                                if is_valid_business_url(url):
-                                    logger.info(f"Found via {strategy['name']}: {url}")
-                                    return url
-                        except:
-                            pass
-                    
-                    # Handle HTML responses
-                    soup = BeautifulSoup(response.content, 'html.parser')
-                    
-                    # Extract URLs from different search engines
-                    urls = []
-                    if 'duckduckgo' in strategy['url']:
-                        urls.extend([a.get('href', '') for a in soup.find_all('a') if a.get('href')])
-                    elif 'startpage' in strategy['url']:
-                        urls.extend([a.get('href', '') for a in soup.find_all('a', class_='w-gl__result-title') if a.get('href')])
-                    elif 'bing' in strategy['url']:
-                        urls.extend([a.get('href', '') for a in soup.find_all('a') if a.get('href')])
-                    
-                    # Validate and return first good URL
-                    for url in urls[:5]:
-                        if isinstance(url, str) and is_valid_business_url(url):
-                            logger.info(f"Found via {strategy['name']}: {url}")
+                    urls = extract_business_urls_from_search(response.text, clean_name)
+                    for url in urls[:3]:  # Check top 3 results
+                        if is_valid_business_url(url):
+                            logger.info(f"Found via {engine['name']}: {url}")
                             return url
-                
-                # Small delay between search engines
-                time.sleep(0.3)
-                
             except Exception as e:
-                logger.error(f"{strategy['name']} search failed for {clean_name}: {str(e)}")
+                logger.warning(f"{engine['name']} search failed: {str(e)}")
                 continue
         
-        logger.info(f"No website found for {clean_name} across all search engines")
+        logger.info(f"No website found for {clean_name}")
         return None
         
     except Exception as e:
         logger.error(f"Error searching for {company_name}: {str(e)}")
         return None
+
+def generate_direct_website_guesses(company_name):
+    """Generate likely website URLs based on company name"""
+    urls = []
+    
+    # Clean the name for URL generation
+    clean = re.sub(r'[^a-zA-Z0-9\s]', '', company_name.lower())
+    clean = re.sub(r'\s+', '', clean)  # Remove all spaces
+    
+    # Common patterns
+    if clean and len(clean) > 2:
+        urls.extend([
+            f"https://www.{clean}.com",
+            f"https://{clean}.com",
+            f"https://www.{clean}.net",
+            f"https://{clean}.net",
+            f"https://www.{clean}.org",
+        ])
+        
+        # Try with dashes for multi-word companies
+        if ' ' in company_name:
+            dash_name = re.sub(r'[^a-zA-Z0-9\s]', '', company_name.lower())
+            dash_name = re.sub(r'\s+', '-', dash_name.strip())
+            urls.extend([
+                f"https://www.{dash_name}.com",
+                f"https://{dash_name}.com",
+            ])
+    
+    return urls
+
+def test_website_exists(url):
+    """Quickly test if a website exists and is accessible"""
+    try:
+        response = requests.head(url, timeout=3, allow_redirects=True)
+        return response.status_code in [200, 301, 302, 403]  # 403 might still have contact info
+    except:
+        return False
+
+def extract_business_urls_from_search(html_content, company_name):
+    """Extract business URLs from search engine results"""
+    urls = []
+    
+    # Simple regex to find URLs in search results
+    url_pattern = re.compile(r'https?://(?:www\.)?([a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,})', re.IGNORECASE)
+    matches = url_pattern.findall(html_content)
+    
+    company_keywords = company_name.lower().split()
+    
+    for match in matches:
+        full_url = f"https://{match}"
+        domain_lower = match.lower()
+        
+        # Prioritize URLs that contain company name keywords
+        if any(keyword in domain_lower for keyword in company_keywords if len(keyword) > 3):
+            urls.insert(0, full_url)  # Put at beginning
+        else:
+            urls.append(full_url)
+    
+    return urls[:10]  # Return top 10
 
 def is_valid_business_url(url):
     """Enhanced URL validation for business websites"""
@@ -330,6 +378,52 @@ def korea_test():
         'message': 'If you can see this, the app is accessible from Korea!'
     })
 
+@app.route('/debug')
+def debug():
+    """Debug endpoint for troubleshooting access issues"""
+    try:
+        user_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+        
+        # Get all headers for debugging
+        headers = dict(request.headers)
+        
+        debug_info = {
+            'status': 'debug_info',
+            'user_ip': user_ip,
+            'user_agent': user_agent,
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S UTC'),
+            'server_location': 'Railway (Europe)',
+            'headers': headers,
+            'method': request.method,
+            'url': request.url,
+            'flask_version': '2.3.3',
+            'python_version': platform.python_version(),
+            'troubleshooting': {
+                'try_these_steps': [
+                    'Clear browser cache and cookies',
+                    'Try incognito/private browsing mode',
+                    'Try different browser (Chrome, Firefox, Safari)',
+                    'Check if JavaScript is enabled',
+                    'Try mobile data instead of WiFi',
+                    'Use VPN if available'
+                ],
+                'test_urls': [
+                    'https://web-production-2535.up.railway.app/health',
+                    'https://web-production-2535.up.railway.app/korea-test',
+                    'https://web-production-2535.up.railway.app/debug'
+                ]
+            }
+        }
+        
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        return jsonify({
+            'error': f'Debug endpoint error: {str(e)}',
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S UTC')
+        }), 500
+
 @app.route('/test-columns', methods=['POST'])
 def test_columns():
     """Test endpoint to help debug column detection issues"""
@@ -446,18 +540,25 @@ def upload_file():
                 'suggested_columns': possible_columns[:10]
             }), 400
         
-        # Process all companies in the file
-        results = []
-        total_companies = len(df)  # Process entire file
+        # Optimize for large files: remove duplicates and limit for demo
+        unique_companies = df.drop_duplicates(subset=[company_column])
         
-        for index, row in df.iterrows():
+        # For large files, limit to prevent timeouts (production optimization)
+        max_companies = 100 if len(unique_companies) > 100 else len(unique_companies)
+        processing_df = unique_companies.head(max_companies)
+        
+        logger.info(f"Processing {max_companies} unique companies (out of {len(df)} total)")
+        
+        results = []
+        
+        for idx, (_, row) in enumerate(processing_df.iterrows()):
             try:
                 company_name_val = row[company_column]
                 if pd.isna(company_name_val) or str(company_name_val).strip() == '':
                     continue
                 
                 company_name = str(company_name_val).strip()
-                logger.info(f"Processing {index + 1}/{total_companies}: {company_name}")
+                logger.info(f"Processing {idx + 1}/{max_companies}: {company_name}")
                 
                 email, source = find_company_email(company_name)
                 
@@ -467,10 +568,10 @@ def upload_file():
                 result_row['processed_company_name'] = company_name
                 
                 results.append(result_row)
-                time.sleep(1)  # Shorter delay for production
+                time.sleep(0.5)  # Faster processing
                 
             except Exception as e:
-                logger.error(f"Error processing row {index + 1}: {str(e)}")
+                logger.error(f"Error processing row {idx + 1}: {str(e)}")
                 continue
         
         results_df = pd.DataFrame(results)
@@ -480,17 +581,29 @@ def upload_file():
         results_df.to_csv(output_path, index=False)
         
         total_processed = len(results_df)
-        emails_found = len(results_df[results_df['found_email'] != 'Not found'].index) if total_processed > 0 else 0
-        success_rate = (emails_found / total_processed * 100) if total_processed > 0 else 0
+        if total_processed > 0:
+            emails_found = len(results_df[results_df['found_email'] != 'Not found'])
+            success_rate = (emails_found / total_processed * 100)
+        else:
+            emails_found = 0
+            success_rate = 0
         
-        return jsonify({
+        # Prepare response with user-friendly messages
+        response_data = {
             'success': True,
             'total_companies': total_processed,
             'emails_found': emails_found,
             'success_rate': round(success_rate, 1),
             'download_url': f'/download/{output_filename}',
             'company_column_used': company_column
-        })
+        }
+        
+        # Add notification if file was large and limited
+        if len(df) > max_companies:
+            response_data['processing_note'] = f"File contained {len(df)} companies. Processed {max_companies} unique companies to prevent timeouts. For processing larger files, please contact support."
+            response_data['total_companies_in_file'] = len(df)
+        
+        return jsonify(response_data)
         
     except Exception as e:
         logger.error(f"Upload error: {str(e)}")

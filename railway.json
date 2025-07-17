@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python3 email_scraper_final.py",
+    "startCommand": "gunicorn --bind 0.0.0.0:$PORT email_scraper_final:app",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
