@@ -53,7 +53,7 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
 <strong>📧 Overview:</strong> Advanced email extraction system that finds real business contact emails for fashion companies with 60-75% success rate.<br>
-<strong>⚡ Capacity:</strong> Process up to 300 companies in 2-10 minutes depending on file size.
+<strong>⚡ Capacity:</strong> Process up to 300 companies in 2-5 minutes depending on file size.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
@@ -315,14 +315,14 @@ def check_instagram_email(company_name, requests):
         clean_name = clean_company_name(company_name)
         if not clean_name:
             return None
+        
+        # Quick timeout to prevent hanging (max 8 seconds per company for Instagram)
+        start_time = time.time()
             
-        # Create potential Instagram usernames for fashion companies
+        # Create potential Instagram usernames for fashion companies (limited for speed)
         potential_usernames = [
             clean_name.lower().replace(' ', ''),
             clean_name.lower().replace(' ', '_'),
-            clean_name.lower().replace(' ', '.'),
-            f"{clean_name.lower().replace(' ', '')}official",
-            f"{clean_name.lower().replace(' ', '')}brand",
         ]
         
         headers = {
@@ -330,13 +330,17 @@ def check_instagram_email(company_name, requests):
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         }
         
-        # Check each potential username
+        # Check each potential username (with timeout protection)
         for username in potential_usernames:
+            # Stop if taking too long
+            if time.time() - start_time > 8:
+                break
+                
             try:
                 # Use Instagram's public profile endpoint (no login required)
                 instagram_url = f"https://www.instagram.com/{username}/"
                 
-                response = requests.get(instagram_url, headers=headers, timeout=6)
+                response = requests.get(instagram_url, headers=headers, timeout=3)
                 if response.status_code == 200:
                     # Look for emails in the publicly visible content
                     page_content = response.text.lower()
@@ -358,8 +362,8 @@ def check_instagram_email(company_name, requests):
                         if business_emails:
                             return business_emails[0], instagram_url
                 
-                # Rate limiting - be respectful to Instagram
-                time.sleep(1)
+                # Quick rate limiting
+                time.sleep(0.3)
                 
             except Exception as e:
                 # Continue to next username if this one fails
