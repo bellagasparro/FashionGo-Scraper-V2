@@ -49,14 +49,8 @@ button:hover { background: #2980b9; }
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>Accurate Email Extraction + Instagram:</strong><br>
-✅ Real emails only (no guessing)<br>
-✅ Website discovery + contact page scanning<br>
-✅ Instagram profile checking (fashion industry focused)<br>
-✅ Business email prioritization<br>
-✅ Processes up to <strong>300 companies</strong> per batch<br>
-<strong>Expected Success Rate: 60-75% (high accuracy)</strong><br>
-<strong>Processing Time: 2-3 min (100 companies), 8-10 min (300 companies)</strong>
+<strong>📧 Overview:</strong> Advanced email extraction system that finds real business contact emails for fashion companies with 60-75% success rate.<br>
+<strong>⚡ Capacity:</strong> Process up to 300 companies in 2-10 minutes depending on file size.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
