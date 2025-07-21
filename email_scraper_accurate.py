@@ -53,7 +53,7 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
 <strong>📧 Overview:</strong> Advanced email extraction with 25+ domain patterns, 40+ contact pages, and location intelligence for ~70% success rates with verified business emails.<br>
-<strong>⚡ Capacity:</strong> Process up to 300 companies in 2-5 minutes depending on file size.
+<strong>⚡ Capacity:</strong> Process up to 300 companies. Expect ~6-8 seconds per company (100 companies ≈ 10-12 minutes).
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
