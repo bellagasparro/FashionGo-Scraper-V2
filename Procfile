@@ -1,1 +1,1 @@
-web: python debug_railway.py 
+web: python email_scraper_accurate.py 

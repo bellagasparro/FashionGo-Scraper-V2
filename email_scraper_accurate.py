@@ -1,10 +1,17 @@
+print("=== EMAIL SCRAPER DEBUG: Starting imports ===")
 from flask import Flask, jsonify
+print("✅ Flask imported")
 import os
+print("✅ os imported")
 import time
+print("✅ time imported")
 import re
+print("✅ re imported")
 
+print("=== EMAIL SCRAPER DEBUG: Creating Flask app ===")
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+print("✅ Flask app created")
 
 @app.route('/')
 def index():
@@ -361,6 +368,7 @@ def extract_real_emails(url, requests):
 @app.route('/health')
 def health():
     """Ultra-fast health check"""
+    print("🩺 Health check called!")
     return jsonify({
         'status': 'healthy',
         'timestamp': time.strftime('%Y-%m-%d %H:%M:%S UTC'),
@@ -392,6 +400,9 @@ def debug():
         'features': 'real emails only - no guessing'
     })
 
+print("=== EMAIL SCRAPER DEBUG: Routes registered ===")
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    print(f"=== EMAIL SCRAPER DEBUG: Starting Flask app on port {port} ===")
     app.run(host='0.0.0.0', port=port, debug=False) 

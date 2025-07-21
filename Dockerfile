@@ -18,4 +18,4 @@ RUN mkdir -p uploads
 EXPOSE 5000
 
 # Run with gunicorn
-CMD python debug_railway.py 
+CMD python email_scraper_accurate.py 
