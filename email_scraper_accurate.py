@@ -192,11 +192,31 @@ def upload_file():
             os.remove(filepath)
             return jsonify({'success': False, 'error': f'Error reading file: {str(e)}'})
         
-        # Check if 'company' column exists
-        if 'company' not in df.columns:
+        # Check for company column (flexible matching)
+        company_column = None
+        potential_company_columns = [
+            'company', 'Company', 'COMPANY', 
+            'companyName', 'company_name', 'Company Name', 'Company_Name',
+            'shipToCompanyName', 'ship_to_company_name', 'Ship To Company Name',
+            'business_name', 'Business Name', 'BusinessName',
+            'organization', 'Organization', 'org_name',
+            'client', 'Client', 'customer', 'Customer'
+        ]
+        
+        for col in potential_company_columns:
+            if col in df.columns:
+                company_column = col
+                break
+        
+        if not company_column:
             available_columns = ', '.join(df.columns.tolist())
             os.remove(filepath)
-            return jsonify({'success': False, 'error': f'No "company" column found. Available columns: {available_columns}'})
+            return jsonify({'success': False, 'error': f'No company column found. Available columns: {available_columns}. Please ensure one column contains company names.'})
+        
+        logger.info(f"Using company column: {company_column}")
+        
+        # Rename the company column to 'company' for consistent processing
+        df = df.rename(columns={company_column: 'company'})
         
         # Process companies - accurate emails only
         results = process_companies_accurate(df, logger, requests)
@@ -260,16 +280,37 @@ def process_companies_accurate(companies_df, logger, requests):
     processed_companies = set()
     start_time = time.time()
     
+    logger.info(f"Starting processing with {len(companies_df)} total rows")
+    
     # Remove duplicates and limit to 300 companies
     unique_companies = []
-    for _, row in companies_df.iterrows():
+    skipped_empty = 0
+    skipped_duplicates = 0
+    
+    for idx, row in companies_df.iterrows():
         company_name = clean_company_name(row.get('company', ''))
-        if company_name and company_name not in processed_companies:
-            unique_companies.append({'company': company_name, 'original_row': row})
-            processed_companies.add(company_name)
+        
+        if not company_name:
+            skipped_empty += 1
+            continue
+            
+        if company_name in processed_companies:
+            skipped_duplicates += 1
+            continue
+            
+        unique_companies.append({'company': company_name, 'original_row': row})
+        processed_companies.add(company_name)
         
         if len(unique_companies) >= 300:
+            logger.info(f"Reached maximum limit of 300 companies")
             break
+    
+    logger.info(f"Company processing summary: {len(unique_companies)} unique companies, {skipped_empty} empty/invalid, {skipped_duplicates} duplicates")
+    
+    # Debug: Log first few company names found
+    if unique_companies:
+        sample_companies = [comp['company'] for comp in unique_companies[:10]]
+        logger.info(f"Sample companies found: {sample_companies}")
     
     for i, company_data in enumerate(unique_companies):
         # Timeout check - stop after 8 minutes to prevent long hangs
@@ -280,6 +321,7 @@ def process_companies_accurate(companies_df, logger, requests):
         company_name = company_data['company']
         original_row = company_data['original_row']
         
+        company_start_time = time.time()
         logger.info(f"Processing {i+1}/{len(unique_companies)}: {company_name}")
         
         try:
@@ -299,6 +341,9 @@ def process_companies_accurate(companies_df, logger, requests):
                         location_data['phone'] = original_row[col]
             
             email, source = find_real_email_only(company_name, requests, location_data)
+            
+            company_time = time.time() - company_start_time
+            logger.info(f"Company {company_name} processed in {company_time:.2f}s - Email: {'Found' if email else 'Not found'}")
             
             result = {
                 'company': company_name,
@@ -335,14 +380,24 @@ def process_companies_accurate(companies_df, logger, requests):
     return results
 
 def clean_company_name(name):
-    if not name or str(name).strip() == '':
+    if not name or str(name).strip() == '' or str(name).lower() in ['nan', 'null', 'none', '']:
         return None
     
     name = str(name).strip()
-    suffixes = [' LLC', ' Inc', ' Corp', ' Corporation', ' Ltd', ' Limited', ' Co', ' Company']
+    
+    # Don't clean if the name is too short (likely important)
+    if len(name) <= 3:
+        return name if name else None
+    
+    # Only remove common business suffixes, but be more conservative
+    suffixes = [' LLC', ' Inc.', ' Inc', ' Corp.', ' Corp', ' Corporation', ' Ltd.', ' Ltd', ' Limited', ' Co.', ' Company']
     for suffix in suffixes:
         if name.upper().endswith(suffix.upper()):
-            name = name[:-len(suffix)].strip()
+            cleaned = name[:-len(suffix)].strip()
+            # Only remove suffix if there's still a substantial company name left
+            if len(cleaned) >= 3:
+                name = cleaned
+            break
     
     return name if name else None
 
@@ -355,7 +410,7 @@ def search_engines_fallback(company_name, requests):
         ]
         
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
         for search_url in search_engines:
@@ -520,135 +575,55 @@ def generate_enhanced_domains(company_name, country=None, state=None, city=None)
     clean_name = company_name.lower().replace(' ', '')
     domains = []
     
-    # COMPREHENSIVE base patterns - business naming conventions
-    base_patterns = [
-        # Standard formats
+    # PRIORITY: Most common patterns first
+    priority_patterns = [
         f"{clean_name}.com",
         f"{company_name.lower().replace(' ', '-')}.com",
-        f"{company_name.lower().replace(' ', '_')}.com",
-        f"{clean_name}.net",
-        f"{clean_name}.org",
-        f"{clean_name}.co",
-        f"{clean_name}.io",
-        f"{clean_name}.biz",
-        f"{clean_name}.info",
-        
-        # Business variations
-        f"{clean_name}inc.com",
-        f"{clean_name}llc.com", 
-        f"{clean_name}corp.com",
-        f"{clean_name}company.com",
-        f"{clean_name}shop.com",
-        f"{clean_name}store.com",
-        f"{clean_name}online.com",
-        
-        # Word variations
-        f"the{clean_name}.com",
-        f"{clean_name}co.com",
-        f"{clean_name}group.com",
-        f"{clean_name}brands.com",
+        f"{company_name.lower().replace(' ', '')}.com",
     ]
     
-    # Multi-word company handling
+    # Add www versions of priority patterns
     if ' ' in company_name:
         words = company_name.lower().split()
         first_word = words[0]
-        last_word = words[-1]
-        
-        # First/last word domains
-        base_patterns.extend([
+        priority_patterns.extend([
             f"{first_word}.com",
-            f"{last_word}.com",
-            f"{first_word}{last_word}.com",
-            f"{last_word}{first_word}.com",
+            f"{''.join([word[0] for word in words if word])}.com",  # Acronym
         ])
-        
-        # Acronym variations
-        if len(words) >= 2:
-            acronym = ''.join([word[0] for word in words if word])
-            base_patterns.extend([
-                f"{acronym}.com",
-                f"{acronym}inc.com",
-                f"{acronym}llc.com",
-            ])
-        
-        # Remove articles and common words
-        important_words = [w for w in words if w not in ['the', 'and', 'or', 'of', 'for', 'with', 'by']]
-        if len(important_words) >= 2:
-            combined = ''.join(important_words)
-            base_patterns.extend([
-                f"{combined}.com",
-                f"{combined}inc.com",
-            ])
     
-    domains.extend(base_patterns)
+    domains.extend(priority_patterns)
     
-    # LOCATION-ENHANCED patterns
+    # SECONDARY: Business and location patterns
+    secondary_patterns = [
+        f"{clean_name}.net",
+        f"{clean_name}.org", 
+        f"{clean_name}.co",
+        f"{clean_name}.biz",
+        f"{clean_name}inc.com",
+        f"{clean_name}llc.com",
+    ]
+    
+    # Location-enhanced patterns (only if location data available)
     if country:
         country_lower = str(country).lower()
-        
-        # Country-specific TLDs and patterns
-        if country_lower in ['usa', 'us', 'united states', 'america']:
-            domains.extend([
-                f"{clean_name}.us", 
-                f"{clean_name}usa.com",
-                f"{clean_name}america.com",
-                f"usa{clean_name}.com",
-            ])
+        if country_lower in ['usa', 'us', 'united states']:
+            secondary_patterns.extend([f"{clean_name}.us", f"{clean_name}usa.com"])
         elif country_lower in ['canada', 'ca']:
-            domains.extend([
-                f"{clean_name}.ca", 
-                f"{clean_name}canada.com",
-                f"canada{clean_name}.com",
-            ])
-        elif country_lower in ['uk', 'united kingdom', 'england', 'britain']:
-            domains.extend([
-                f"{clean_name}.co.uk", 
-                f"{clean_name}.uk",
-                f"{clean_name}uk.com",
-            ])
-        elif country_lower in ['germany', 'de', 'deutschland']:
-            domains.extend([f"{clean_name}.de", f"{clean_name}germany.com"])
-        elif country_lower in ['france', 'fr']:
-            domains.extend([f"{clean_name}.fr", f"{clean_name}france.com"])
-        elif country_lower in ['australia', 'au']:
-            domains.extend([f"{clean_name}.com.au", f"{clean_name}.au"])
-        elif country_lower in ['italy', 'it']:
-            domains.extend([f"{clean_name}.it"])
-        elif country_lower in ['spain', 'es']:
-            domains.extend([f"{clean_name}.es"])
-        elif country_lower in ['japan', 'jp']:
-            domains.extend([f"{clean_name}.jp", f"{clean_name}.co.jp"])
+            secondary_patterns.extend([f"{clean_name}.ca"])
+        elif country_lower in ['uk', 'united kingdom', 'england']:
+            secondary_patterns.extend([f"{clean_name}.co.uk"])
     
-    # STATE-enhanced patterns for US/Canada
-    if state and country and str(country).lower() in ['usa', 'us', 'united states', 'canada', 'ca']:
-        state_clean = str(state).lower().replace(' ', '')
-        state_abbr = str(state)[:2].lower() if len(str(state)) > 2 else str(state).lower()
-        domains.extend([
-            f"{clean_name}{state_abbr}.com",
-            f"{clean_name}-{state_abbr}.com",
-            f"{clean_name}{state_clean}.com",
-            f"{state_abbr}{clean_name}.com",
-        ])
+    domains.extend(secondary_patterns)
     
-    # CITY-enhanced patterns
-    if city:
-        city_clean = str(city).lower().replace(' ', '').replace('-', '')
-        if len(city_clean) >= 3:  # Only for reasonable city names
-            domains.extend([
-                f"{clean_name}{city_clean}.com",
-                f"{city_clean}{clean_name}.com",
-            ])
-    
-    # Remove duplicates while preserving order, expand to top 25 domains
+    # Remove duplicates while preserving order, limit to top 12 for speed
     seen = set()
     unique_domains = []
     for domain in domains:
-        if domain and domain not in seen and len(domain) > 4:  # Basic validation
+        if domain and domain not in seen and len(domain) > 4:
             seen.add(domain)
             unique_domains.append(domain)
     
-    return unique_domains[:25]  # Increased from 15 to 25
+    return unique_domains[:12]  # Reduced from 25 to 12 for speed
 
 def find_real_email_only(company_name, requests, location_data=None):
     """Find REAL emails only - no guessing, high accuracy"""
@@ -689,15 +664,27 @@ def find_real_email_only(company_name, requests, location_data=None):
             # Try base domain first
             try:
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-                response = requests.get(website, headers=headers, timeout=5)
+                response = requests.get(website, headers=headers, timeout=3)  # Reduced timeout
                 if response.status_code == 200:
                     # Website found - now look for REAL emails only
                     email = extract_real_emails(website, requests)
                     if email:
                         return email, f"Homepage: {website}"
                     
-                    # ALSO check with common subdomains for the same domain
-                    subdomains = ['www', 'mail', 'contact', 'info', 'shop', 'store']
+                    # PRIORITY: Check only top 5 most likely contact pages first
+                    priority_contact_pages = ['/contact', '/contact-us', '/about', '/info', '/support']
+                    
+                    for page in priority_contact_pages:
+                        try:
+                            contact_url = f"{website}{page}"
+                            contact_email = extract_real_emails(contact_url, requests)
+                            if contact_email:
+                                return contact_email, f"Contact page: {contact_url}"
+                        except:
+                            continue
+                    
+                    # Only check subdomains if we haven't found anything yet
+                    subdomains = ['www', 'mail', 'contact']  # Reduced list
                     for subdomain in subdomains:
                         try:
                             subdomain_url = f"{protocol}{subdomain}.{domain}"
@@ -708,63 +695,19 @@ def find_real_email_only(company_name, requests, location_data=None):
                         except:
                             continue
                     
-                    # Check comprehensive contact pages (40+ variations)
-                    contact_pages = [
-                        # Standard contact pages
-                        '/contact', '/contact-us', '/contact_us', '/contactus', '/contact-info',
-                        '/contact-form', '/contact-page', '/contact-details', '/reach-us',
-                        
-                        # About/Team pages
-                        '/about', '/about-us', '/about_us', '/team', '/our-team', '/staff',
-                        '/leadership', '/management', '/founders', '/who-we-are',
-                        
-                        # Support/Help pages
-                        '/support', '/help', '/customer-service', '/customer_service',
-                        '/customer-support', '/service', '/assistance', '/help-center',
-                        
-                        # Sales/Business pages
-                        '/sales', '/sales-team', '/business', '/enterprise', '/b2b',
-                        '/wholesale', '/trade', '/dealer', '/distributor', '/partner',
-                        
-                        # General info pages
-                        '/info', '/information', '/details', '/company-info',
-                        '/get-in-touch', '/touch', '/connect', '/reach', '/find-us',
-                        '/inquiry', '/inquiries', '/questions', '/ask', '/request',
-                        
-                        # Alternative formats
-                        '/contact.html', '/contact.php', '/contact.asp', '/contact.jsp',
-                        '/about.html', '/info.html', '/support.html',
-                        
-                        # Directory style
-                        '/pages/contact', '/page/contact', '/site/contact',
-                        '/company/contact', '/corporate/contact'
-                    ]
+                    # If we found a working website but no emails yet, try a few more contact pages
+                    additional_contact_pages = ['/contact_us', '/sales', '/customer-service', '/help', '/team']
                     
-                    for page in contact_pages:
+                    for page in additional_contact_pages:
                         try:
                             contact_url = f"{website}{page}"
                             contact_email = extract_real_emails(contact_url, requests)
                             if contact_email:
                                 return contact_email, f"Contact page: {contact_url}"
-                            time.sleep(0.1)  # Quick rate limiting
                         except:
                             continue
                     
-                    # Dynamic contact link discovery
-                    try:
-                        dynamic_links = find_dynamic_contact_links(website, requests)
-                        for link in dynamic_links[:5]:  # Check top 5 dynamic links
-                            try:
-                                dynamic_email = extract_real_emails(link, requests)
-                                if dynamic_email:
-                                    return dynamic_email, f"Dynamic link: {link}"
-                                time.sleep(0.1)
-                            except:
-                                continue
-                    except:
-                        pass
-                    
-                    # Website found but no emails - return this info
+                    # Found working website but no emails
                     return None, f"Website found ({website}) but no emails detected"
             except:
                 continue
