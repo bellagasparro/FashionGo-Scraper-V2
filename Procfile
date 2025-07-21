@@ -1,1 +1,1 @@
-web: gunicorn --bind 0.0.0.0:$PORT email_scraper_accurate:app 
+web: gunicorn --bind 0.0.0.0:$PORT minimal_railway:app 

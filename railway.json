@@ -4,9 +4,9 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "gunicorn --bind 0.0.0.0:$PORT email_scraper_accurate:app --timeout 120 --worker-tmp-dir /dev/shm",
+    "startCommand": "gunicorn --bind 0.0.0.0:$PORT minimal_railway:app --workers 1 --timeout 120",
     "healthcheckPath": "/health",
-    "healthcheckTimeout": 30,
+    "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 5
   }
