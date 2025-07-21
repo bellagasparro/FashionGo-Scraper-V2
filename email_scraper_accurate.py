@@ -77,13 +77,6 @@ Zara,Fashion<br>
 H&M,Retail
 </code>
 </div>
-<div class="warning">
-<strong>⚠️ Common Issues:</strong><br>
-• Column named "Company" (uppercase) → Change to "company" (lowercase)<br>
-• Column named "business_name" → Change to "company"<br>
-• File over 16MB → Split into smaller files<br>
-• Wrong format (.txt, .doc) → Convert to .csv or .xlsx
-</div>
 </div>
 <div class="upload-area">
 <h3>📁 Upload Company List</h3>
@@ -94,6 +87,13 @@ H&M,Retail
 <button type="submit">🔍 Find Real Emails</button>
 <button type="button" class="reset-btn" onclick="resetForm()">🔄 Reset</button>
 </form>
+</div>
+<div class="warning">
+<strong>⚠️ Common Issues:</strong><br>
+• Column named "Company" (uppercase) → Change to "company" (lowercase)<br>
+• Column named "business_name" → Change to "company"<br>
+• File over 16MB → Split into smaller files<br>
+• Wrong format (.txt, .doc) → Convert to .csv or .xlsx
 </div>
 <div id="results" style="display:none;"></div>
 <div id="error" style="display:none;"></div>
