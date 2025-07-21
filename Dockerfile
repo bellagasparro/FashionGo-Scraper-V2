@@ -18,4 +18,4 @@ RUN mkdir -p uploads
 EXPOSE 5000
 
 # Run with gunicorn
-CMD gunicorn --bind 0.0.0.0:$PORT minimal_railway:app 
+CMD python debug_railway.py 

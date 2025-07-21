@@ -1,1 +1,1 @@
-web: gunicorn --bind 0.0.0.0:$PORT minimal_railway:app 
+web: python debug_railway.py 
