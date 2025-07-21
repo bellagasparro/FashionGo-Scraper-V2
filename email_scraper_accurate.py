@@ -728,11 +728,23 @@ def extract_real_emails(url, requests):
         response = requests.get(url, headers=headers, timeout=3)
         response.raise_for_status()
         
+        # DEBUG: Log response details
+        print(f"DEBUG: Checking {url} - Status: {response.status_code}, Content length: {len(response.text)}")
+        
         # Simple but effective email regex
         email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
         emails = email_pattern.findall(response.text)
         
+        # DEBUG: Log what emails were found
+        print(f"DEBUG: Raw emails found on {url}: {emails[:5] if emails else 'None'}")
+        
         if not emails:
+            # DEBUG: Check if page has typical email-hiding patterns
+            content_lower = response.text.lower()
+            if 'contact' in content_lower:
+                print(f"DEBUG: {url} has 'contact' but no emails found")
+            if 'mailto:' in content_lower:
+                print(f"DEBUG: {url} has 'mailto:' links but emails not extracted")
             return None
         
         # Basic filtering - not too strict
@@ -751,7 +763,11 @@ def extract_real_emails(url, requests):
                 '.' in email.split('@')[1]):
                 business_emails.append(email)
         
+        # DEBUG: Log filtering results
+        print(f"DEBUG: After filtering - Business emails: {business_emails}")
+        
         if not business_emails:
+            print(f"DEBUG: {url} - All emails filtered out")
             return None
         
         # Simple prioritization
@@ -760,11 +776,14 @@ def extract_real_emails(url, requests):
         # Return priority email if found, otherwise first valid email
         for email in business_emails:
             if any(email.lower().startswith(prefix) for prefix in priority_prefixes):
+                print(f"DEBUG: {url} - Returning priority email: {email}")
                 return email
         
+        print(f"DEBUG: {url} - Returning first email: {business_emails[0]}")
         return business_emails[0]
         
-    except:
+    except Exception as e:
+        print(f"DEBUG: Error extracting from {url}: {str(e)}")
         return None
 
 @app.route('/health')
