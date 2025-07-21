@@ -17,29 +17,32 @@ print("✅ Flask app created")
 def index():
     return '''<!DOCTYPE html>
 <html><head><title>FashionGo Email Scraper - Accurate</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@300;400;500;700&family=Nanum+Myeongjo:wght@400;700&display=swap" rel="stylesheet">
 <style>
-body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
-.container { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-h1 { color: #2c3e50; text-align: center; margin-bottom: 30px; }
-.upload-area { border: 2px dashed #3498db; border-radius: 10px; padding: 40px; text-align: center; margin: 20px 0; background: #f8f9fa; }
-.upload-area:hover { background: #e3f2fd; border-color: #2196f3; }
+body { font-family: 'Google Sans', Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f6efe2; }
+.container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid rgba(246, 239, 226, 0.3); }
+h1 { font-family: 'Nanum Myeongjo', serif; color: #2c3e50; text-align: center; margin-bottom: 30px; font-weight: 700; }
+.upload-area { border: 2px dashed #3498db; border-radius: 12px; padding: 40px; text-align: center; margin: 20px 0; background: linear-gradient(145deg, #f6efe2, #faf7f2); }
+.upload-area:hover { background: linear-gradient(145deg, #f0e6d6, #f6efe2); border-color: #2196f3; }
 input[type="file"] { margin: 10px 0; }
-button { background: #3498db; color: white; padding: 12px 30px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin: 10px 5px; }
-button:hover { background: #2980b9; }
+button { font-family: 'Google Sans', sans-serif; background: #3498db; color: white; padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; margin: 10px 5px; font-weight: 500; transition: all 0.3s ease; }
+button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3); }
 .reset-btn { background: #95a5a6; }
 .reset-btn:hover { background: #7f8c8d; }
 .results { margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 5px; }
 .error { color: #e74c3c; background: #fdf2f2; padding: 15px; border-radius: 5px; border-left: 4px solid #e74c3c; }
 .success { color: #27ae60; background: #f0f9f4; padding: 15px; border-radius: 5px; border-left: 4px solid #27ae60; }
 .info { background: #e8f4fd; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #3498db; }
-.instructions { background: #f0f9f4; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #27ae60; }
-.instructions h3 { margin-top: 0; color: #27ae60; }
+.instructions { background: linear-gradient(145deg, #f0f9f4, #f6efe2); padding: 25px; border-radius: 12px; margin: 20px 0; border-left: 4px solid #27ae60; }
+.instructions h3 { font-family: 'Nanum Myeongjo', serif; margin-top: 0; color: #27ae60; font-weight: 700; }
 .steps { margin: 15px 0; }
 .step { padding: 8px 0; border-bottom: 1px solid #e8f5e8; }
 .step:last-child { border-bottom: none; }
-.example { background: #fff; padding: 15px; border-radius: 5px; margin-top: 15px; border: 1px solid #d5e8d5; }
-.example code { background: #f8f9fa; padding: 10px; display: block; border-radius: 3px; font-family: monospace; font-size: 14px; line-height: 1.4; }
-.warning { background: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 15px; border: 1px solid #ffeaa7; border-left: 4px solid #fdcb6e; }
+.example { background: linear-gradient(145deg, #fff, #f6efe2); padding: 20px; border-radius: 10px; margin-top: 15px; border: 1px solid #d5e8d5; }
+.example code { background: #f6efe2; padding: 15px; display: block; border-radius: 8px; font-family: 'Google Sans', monospace; font-size: 14px; line-height: 1.6; border: 1px solid rgba(246, 239, 226, 0.5); }
+.warning { background: linear-gradient(145deg, #fff3cd, #f6efe2); padding: 20px; border-radius: 10px; margin-top: 15px; border: 1px solid #ffeaa7; border-left: 4px solid #fdcb6e; }
 .warning strong { color: #d63031; }
 .stats { display: flex; justify-content: space-around; margin: 20px 0; }
 .stat { text-align: center; padding: 15px; background: #fff; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
