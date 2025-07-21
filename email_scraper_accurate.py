@@ -74,10 +74,11 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="example">
 <strong>📄 Example file structure:</strong><br>
 <code>
-company,billingCity,billingState,billingCountry<br>
-Nike,Beaverton,OR,USA<br>
-Zara,New York,NY,USA<br>
-H&M,Stockholm,,Sweden
+company,phoneNumber,billingCity,billingState,billingCountry<br>
+Nike,503-555-0123,Beaverton,OR,USA<br>
+Zara,212-555-0456,New York,NY,USA<br>
+H&M,+46-8-555-0789,Stockholm,,Sweden<br>
+Target,612-555-0789,Minneapolis,MN,USA
 </code>
 </div>
 </div>
