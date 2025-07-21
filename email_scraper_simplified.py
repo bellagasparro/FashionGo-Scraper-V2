@@ -369,7 +369,7 @@ def process_companies(companies_df):
             unique_companies.append({'company': company_name, 'original_row': row})
             processed_companies.add(company_name)
         
-        if len(unique_companies) >= 100:
+        if len(unique_companies) >= 300:
             break
     
     for i, company_data in enumerate(unique_companies):
@@ -480,14 +480,15 @@ button:hover { background: #2980b9; }
 <div class="container">
 <h1>🚀 FashionGo Email Scraper - Simplified</h1>
 <div class="info">
-<strong>Simplified Version Features:</strong><br>
+<strong>Enhanced Version Features:</strong><br>
 ✅ 5-Layer Email Extraction System<br>
 ✅ Enhanced Website Discovery (100+ domain variations)<br>
 ✅ 20+ Contact Page Variations<br>
 ✅ Dynamic Contact Link Detection<br>
 ✅ Smart Email Format Guessing<br>
-✅ Optimized for Railway Deployment<br>
-<strong>Expected Success Rate: 65-75%</strong>
+✅ Processes up to <strong>300 companies</strong> per batch<br>
+<strong>Expected Success Rate: 65-75%</strong><br>
+<strong>Processing Time: 2-3 min (100 companies), 8-10 min (300 companies)</strong>
 </div>
 <div class="upload-area">
 <h3>📁 Upload Company List</h3>
