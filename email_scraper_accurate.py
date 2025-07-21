@@ -52,7 +52,7 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>📧 Overview:</strong> Enhanced email extraction with website validation, JavaScript email detection, and smart domain filtering for 50-70% success rates with verified business emails only.<br>
+<strong>📧 Overview:</strong> Simplified and effective email extraction system focused on accuracy. Finds real business contact emails from company websites.<br>
 <strong>⚡ Capacity:</strong> Process up to 300 companies. Expect ~6-8 seconds per company (100 companies ≈ 10-12 minutes).
 </div>
 <div class="instructions">
