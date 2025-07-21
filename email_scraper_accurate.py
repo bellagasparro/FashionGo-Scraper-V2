@@ -579,6 +579,10 @@ def generate_enhanced_domains(company_name, country=None, state=None, city=None)
     clean_name = company_name.lower().replace(' ', '')
     domains = []
     
+    # Skip if company name is too generic or short
+    if len(clean_name) <= 2 or clean_name in ['llc', 'inc', 'corp', 'ltd', 'co']:
+        return []
+    
     # TOP PRIORITY: Highest success rate patterns (try these first)
     top_priority = [
         f"{clean_name}.com",
@@ -590,14 +594,14 @@ def generate_enhanced_domains(company_name, country=None, state=None, city=None)
         words = company_name.lower().split()
         if len(words) >= 2:
             first_word = words[0]
-            # Only add if meaningful (not articles)
-            if first_word not in ['the', 'a', 'an']:
+            # Only add if meaningful (not articles) and long enough
+            if first_word not in ['the', 'a', 'an'] and len(first_word) >= 3:
                 top_priority.append(f"{first_word}.com")
             
-            # Acronym (only if 2-4 words)
+            # Acronym (only if 2-4 words and results in 3+ characters)
             if 2 <= len(words) <= 4:
                 acronym = ''.join([word[0] for word in words if word and word not in ['the', 'a', 'an']])
-                if len(acronym) >= 2:
+                if len(acronym) >= 3:  # Avoid generic 2-letter domains
                     top_priority.append(f"{acronym}.com")
     
     domains.extend(top_priority)
@@ -605,31 +609,86 @@ def generate_enhanced_domains(company_name, country=None, state=None, city=None)
     # SECONDARY: Business and location patterns (if location data exists)
     secondary = []
     
-    if country and str(country).lower() in ['usa', 'us', 'united states']:
-        secondary.extend([f"{clean_name}.us", f"{clean_name}usa.com"])
-    elif country and str(country).lower() in ['canada', 'ca']:
-        secondary.append(f"{clean_name}.ca")
-    elif country and str(country).lower() in ['uk', 'united kingdom', 'england']:
-        secondary.append(f"{clean_name}.co.uk")
-    
-    # Common business patterns
-    secondary.extend([
-        f"{clean_name}.net",
-        f"{clean_name}inc.com",
-        f"{clean_name}.org",
-    ])
+    # Only add business patterns for longer company names
+    if len(clean_name) >= 4:
+        if country and str(country).lower() in ['usa', 'us', 'united states']:
+            secondary.extend([f"{clean_name}.us", f"{clean_name}usa.com"])
+        elif country and str(country).lower() in ['canada', 'ca']:
+            secondary.append(f"{clean_name}.ca")
+        elif country and str(country).lower() in ['uk', 'united kingdom', 'england']:
+            secondary.append(f"{clean_name}.co.uk")
+        
+        # Common business patterns for longer names only
+        secondary.extend([
+            f"{clean_name}.net",
+            f"{clean_name}inc.com",
+            f"{clean_name}.org",
+        ])
     
     domains.extend(secondary)
     
-    # Remove duplicates, limit to top 8 for maximum speed
+    # Remove duplicates and filter out overly generic domains
     seen = set()
     unique_domains = []
+    generic_domains = {'a.com', 'b.com', 'c.com', 'i.com', 'j.com', 'k.com', 'la.com', 'ny.com', 'us.com'}
+    
     for domain in domains:
-        if domain and domain not in seen and len(domain) > 3:
+        if (domain and domain not in seen and len(domain) > 5 and  # Longer domains only
+            domain not in generic_domains and
+            not domain.startswith(('a.', 'b.', 'c.', 'd.', 'e.', 'f.', 'g.', 'h.', 'i.', 'j.', 'k.', 'l.', 'm.', 'n.', 'o.', 'p.', 'q.', 'r.', 's.', 't.', 'u.', 'v.', 'w.', 'x.', 'y.', 'z.'))):
             seen.add(domain)
             unique_domains.append(domain)
     
-    return unique_domains[:8]  # Reduced to 8 most promising domains
+    return unique_domains[:8]
+
+def is_relevant_website(website_url, company_name, page_content):
+    """Check if the website content is actually related to the company"""
+    try:
+        # Convert to lowercase for comparison
+        content_lower = page_content.lower()
+        company_lower = company_name.lower()
+        
+        # Extract company words (remove common business terms)
+        company_words = company_lower.replace(' llc', '').replace(' inc', '').replace(' corp', '').replace(' ltd', '').replace(' co', '').strip().split()
+        company_words = [word for word in company_words if len(word) >= 3 and word not in ['the', 'and', 'for', 'with']]
+        
+        if not company_words:
+            return True  # If no meaningful words, assume it's valid
+        
+        # Check if any meaningful company words appear in the content
+        content_matches = 0
+        for word in company_words:
+            if word in content_lower:
+                content_matches += 1
+        
+        # Also check title tag specifically
+        title_matches = 0
+        title_match = re.search(r'<title[^>]*>([^<]+)</title>', page_content, re.IGNORECASE)
+        if title_match:
+            title_lower = title_match.group(1).lower()
+            for word in company_words:
+                if word in title_lower:
+                    title_matches += 1
+        
+        # Website is relevant if:
+        # 1. At least 1 company word appears in content OR title
+        # 2. OR if it's a very short/generic domain, be more lenient
+        domain_name = website_url.replace('https://', '').replace('http://', '').split('/')[0].split('.')[0]
+        is_short_domain = len(domain_name) <= 4
+        
+        if title_matches > 0 or content_matches > 0:
+            return True
+        elif is_short_domain and len(company_words) >= 2:
+            # For short domains, require at least some content relevance
+            return content_matches > 0
+        elif not is_short_domain:
+            # For longer domains, be more lenient
+            return True
+        else:
+            return False
+            
+    except:
+        return True  # If validation fails, assume it's valid
 
 def find_real_email_only(company_name, requests, location_data=None):
     """Find REAL emails only - no guessing, high accuracy"""
@@ -672,35 +731,40 @@ def find_real_email_only(company_name, requests, location_data=None):
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
                 response = requests.get(website, headers=headers, timeout=2)  # Reduced to 2s
                 if response.status_code == 200:
-                    # Website found - check homepage first
-                    email = extract_real_emails(website, requests)
-                    if email:
-                        return email, f"Homepage: {website}"
-                    
-                    # Check just the top 3 most effective contact pages
-                    top_contact_pages = ['/contact', '/contact-us', '/about']
-                    
-                    for page in top_contact_pages:
-                        try:
-                            contact_url = f"{website}{page}"
-                            contact_email = extract_real_emails(contact_url, requests)
-                            if contact_email:
-                                return contact_email, f"Contact page: {contact_url}"
-                        except:
-                            continue
-                    
-                    # If main domain didn't work, try just www subdomain
-                    if not website.startswith(f"{protocol}www."):
-                        try:
-                            www_url = f"{protocol}www.{domain}"
-                            www_email = extract_real_emails(www_url, requests)
-                            if www_email:
-                                return www_email, f"WWW Homepage: {www_url}"
-                        except:
-                            pass
-                    
-                    # Found website but no emails
-                    return None, f"Website found ({website}) but no emails detected"
+                    # Basic validation: check if this is likely the right company website
+                    if is_relevant_website(website, company_name, response.text):
+                        # Website found and validated - check homepage first
+                        email = extract_real_emails(website, requests)
+                        if email:
+                            return email, f"Homepage: {website}"
+                        
+                        # Check just the top 3 most effective contact pages
+                        top_contact_pages = ['/contact', '/contact-us', '/about']
+                        
+                        for page in top_contact_pages:
+                            try:
+                                contact_url = f"{website}{page}"
+                                contact_email = extract_real_emails(contact_url, requests)
+                                if contact_email:
+                                    return contact_email, f"Contact page: {contact_url}"
+                            except:
+                                continue
+                        
+                        # If main domain didn't work, try just www subdomain
+                        if not website.startswith(f"{protocol}www."):
+                            try:
+                                www_url = f"{protocol}www.{domain}"
+                                www_email = extract_real_emails(www_url, requests)
+                                if www_email:
+                                    return www_email, f"WWW Homepage: {www_url}"
+                            except:
+                                pass
+                        
+                        # Found website but no emails
+                        return None, f"Website found ({website}) but no emails detected"
+                    else:
+                        # Website exists but doesn't seem to be the right company
+                        continue
             except:
                 continue
     
@@ -714,64 +778,95 @@ def find_real_email_only(company_name, requests, location_data=None):
     return None, f"No website found for {company_name}"
 
 def extract_real_emails(url, requests):
-    """Extract real emails from webpage - no guessing"""
+    """Extract real emails from webpage - enhanced for modern websites"""
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
-        response = requests.get(url, headers=headers, timeout=5)
+        response = requests.get(url, headers=headers, timeout=3)
         response.raise_for_status()
         
-        # Email regex pattern
-        email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
-        emails = email_pattern.findall(response.text)
+        content = response.text.lower()
         
-        if not emails:
+        # Multiple email regex patterns to catch different formats
+        email_patterns = [
+            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Standard
+            r'mailto:([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})',  # Mailto links
+            r'"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})"',  # Quoted emails
+            r"'([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})'",  # Single quoted
+        ]
+        
+        all_emails = []
+        for pattern in email_patterns:
+            emails = re.findall(pattern, response.text, re.IGNORECASE)
+            all_emails.extend(emails)
+        
+        if not all_emails:
+            # Try to find emails in JavaScript or obfuscated content
+            js_patterns = [
+                r'["\']([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+)\.([A-Za-z]{2,})["\']',
+                r'email["\s]*[:=]["\s]*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})',
+                r'contact["\s]*[:=]["\s]*([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})',
+            ]
+            
+            for pattern in js_patterns:
+                matches = re.findall(pattern, response.text, re.IGNORECASE)
+                for match in matches:
+                    if isinstance(match, tuple):
+                        # Reconstruct email from tuple
+                        if len(match) == 3:
+                            email = f"{match[0]}@{match[1]}.{match[2]}"
+                            all_emails.append(email)
+                    else:
+                        all_emails.append(match)
+        
+        if not all_emails:
             return None
         
-        # Filter out common non-business emails and obviously fake ones (relaxed validation)
+        # Enhanced filtering for business emails
         business_emails = []
         skip_patterns = [
             'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
             'noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster',
             'wordpress.com', 'example.com', 'test.com', 'localhost',
-            'cognitive.ai', 'openai.com', 'sentry.io', 'github.com',  # Filter obvious tech domains
-            'admin@admin', 'test@test', 'user@user', '@a.com', '@b.com',  # Filter fake patterns
-            'privacy@', 'legal@', 'abuse@'  # Filter automated emails
+            'sentry.io', 'github.com', 'google.com', 'facebook.com',
+            'admin@admin', 'test@test', 'user@user',
+            'privacy@', 'legal@', 'abuse@', 'spam@'
         ]
         
-        for email in emails:
-            email_lower = email.lower()
-            # Relaxed validation - catch more legitimate business emails
-            if (not any(skip in email_lower for skip in skip_patterns) and 
-                len(email) > 4 and  # Relaxed from 5 to 4
+        for email in all_emails:
+            email = str(email).strip().lower()
+            # Enhanced validation
+            if (not any(skip in email for skip in skip_patterns) and 
+                len(email) > 4 and 
                 '@' in email and 
                 '.' in email.split('@')[1] and
                 not email.startswith('@') and
                 not email.endswith('@') and
-                len(email.split('@')[0]) >= 2 and  # At least 2 chars before @
-                len(email.split('@')[1]) >= 4):   # At least 4 chars after @ (domain)
+                len(email.split('@')[0]) >= 2 and
+                len(email.split('@')[1]) >= 4 and
+                not email.endswith('.png') and not email.endswith('.jpg') and
+                not email.endswith('.gif') and not email.endswith('.svg')):
                 business_emails.append(email)
         
         if not business_emails:
             return None
         
+        # Remove duplicates
+        business_emails = list(set(business_emails))
+        
         # Prioritize business-looking emails (expanded list)
         priority_prefixes = [
-            'info', 'contact', 'sales', 'support', 'admin', 'hello', 'mail',
-            'service', 'help', 'team', 'office', 'business', 'general',
-            'customer', 'orders', 'inquiry', 'marketing', 'press', 'media'
+            'info@', 'contact@', 'sales@', 'support@', 'admin@', 'hello@', 'mail@',
+            'service@', 'help@', 'team@', 'office@', 'business@', 'general@',
+            'customer@', 'orders@', 'inquiry@', 'marketing@', 'press@', 'media@'
         ]
-        priority_emails = []
-        other_emails = []
         
-        for email in business_emails:
-            if any(email.lower().startswith(prefix) for prefix in priority_prefixes):
-                priority_emails.append(email)
-            else:
-                other_emails.append(email)
+        # Sort: priority emails first, then others
+        priority_emails = [email for email in business_emails if any(email.startswith(prefix) for prefix in priority_prefixes)]
+        other_emails = [email for email in business_emails if not any(email.startswith(prefix) for prefix in priority_prefixes)]
         
-        # Return best email found
+        # Return the best email found
         if priority_emails:
             return priority_emails[0]
         elif other_emails:
