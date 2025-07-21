@@ -246,6 +246,7 @@ def process_companies_accurate(companies_df, logger, requests):
     """Accurate processing - real emails only, no guessing"""
     results = []
     processed_companies = set()
+    start_time = time.time()
     
     # Remove duplicates and limit to 300 companies
     unique_companies = []
@@ -259,6 +260,11 @@ def process_companies_accurate(companies_df, logger, requests):
             break
     
     for i, company_data in enumerate(unique_companies):
+        # Timeout check - stop after 8 minutes to prevent long hangs
+        if time.time() - start_time > 480:  # 8 minutes
+            logger.warning(f"Processing timeout reached at company {i+1}, stopping...")
+            break
+            
         company_name = company_data['company']
         original_row = company_data['original_row']
         
@@ -287,6 +293,13 @@ def process_companies_accurate(companies_df, logger, requests):
                 'email': 'Error occurred',
                 'source': f'Error: {str(e)}'
             }
+            # Add any additional columns from original data even on error
+            try:
+                for col in original_row.index:
+                    if col.lower() not in ['company']:
+                        result[col] = original_row[col]
+            except:
+                pass
             results.append(result)
         
         # Delay to avoid overwhelming servers
@@ -312,24 +325,32 @@ def find_dynamic_contact_links(website, requests):
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
-        response = requests.get(website, headers=headers, timeout=5)
+        response = requests.get(website, headers=headers, timeout=3)
         response.raise_for_status()
         
-        # Simple text-based link finding (no BeautifulSoup to keep it lightweight)
+        # Simple text-based link finding using basic string search
         content = response.text.lower()
         contact_links = []
         
-        # Find hrefs with contact-related keywords
-        import re
-        href_pattern = re.compile(r'href=[\'"](/[^\'">]*(?:contact|about|support|help|sales|reach|touch|connect|inquiry|info)[^\'">*)[\'"]', re.IGNORECASE)
-        matches = href_pattern.findall(content)
+        # Look for simple href patterns with contact keywords
+        contact_keywords = ['contact', 'about', 'support', 'help', 'sales']
         
-        for href in matches[:10]:  # Limit to 10 links
-            if href.startswith('/'):
-                full_url = website.rstrip('/') + href
-                contact_links.append(full_url)
+        for keyword in contact_keywords:
+            # Simple search for href="/keyword" or href="/page-with-keyword"
+            if f'href="/{keyword}"' in content:
+                contact_links.append(f"{website.rstrip('/')}/{keyword}")
+            elif f"href='/{keyword}'" in content:
+                contact_links.append(f"{website.rstrip('/')}/{keyword}")
+            # Also check for href="/keyword-us" etc.
+            if f'href="/{keyword}-' in content:
+                start_idx = content.find(f'href="/{keyword}-')
+                if start_idx != -1:
+                    end_idx = content.find('"', start_idx + 6)
+                    if end_idx != -1:
+                        link_path = content[start_idx + 6:end_idx]
+                        contact_links.append(f"{website.rstrip('/')}{link_path}")
         
-        return list(set(contact_links))  # Remove duplicates
+        return list(set(contact_links[:5]))  # Remove duplicates, limit to 5
     except:
         return []
 
