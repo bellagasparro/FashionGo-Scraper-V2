@@ -291,10 +291,14 @@ def process_companies_accurate(companies_df, logger, requests):
         company_name = clean_company_name(row.get('company', ''))
         
         if not company_name:
+            # Debug: Log what was in the company field
+            raw_company = row.get('company', '')
+            logger.debug(f"Skipped empty company at row {idx}: raw='{raw_company}'")
             skipped_empty += 1
             continue
             
         if company_name in processed_companies:
+            logger.debug(f"Skipped duplicate company: '{company_name}'")
             skipped_duplicates += 1
             continue
             
@@ -313,9 +317,9 @@ def process_companies_accurate(companies_df, logger, requests):
         logger.info(f"Sample companies found: {sample_companies}")
     
     for i, company_data in enumerate(unique_companies):
-        # Timeout check - stop after 8 minutes to prevent long hangs
-        if time.time() - start_time > 480:  # 8 minutes
-            logger.warning(f"Processing timeout reached at company {i+1}, stopping...")
+        # Timeout check - stop after 12 minutes to prevent long hangs (extended from 8)
+        if time.time() - start_time > 720:  # 12 minutes
+            logger.warning(f"Processing timeout reached at company {i+1}/{len(unique_companies)}, stopping...")
             break
             
         company_name = company_data['company']
@@ -380,13 +384,13 @@ def process_companies_accurate(companies_df, logger, requests):
     return results
 
 def clean_company_name(name):
-    if not name or str(name).strip() == '' or str(name).lower() in ['nan', 'null', 'none', '']:
+    if not name or str(name).strip() == '' or str(name).lower() in ['nan', 'null', 'none', '', 'n/a']:
         return None
     
     name = str(name).strip()
     
     # Don't clean if the name is too short (likely important)
-    if len(name) <= 3:
+    if len(name) <= 2:
         return name if name else None
     
     # Only remove common business suffixes, but be more conservative
@@ -395,7 +399,7 @@ def clean_company_name(name):
         if name.upper().endswith(suffix.upper()):
             cleaned = name[:-len(suffix)].strip()
             # Only remove suffix if there's still a substantial company name left
-            if len(cleaned) >= 3:
+            if len(cleaned) >= 2:  # Reduced from 3 to 2
                 name = cleaned
             break
     
@@ -571,59 +575,61 @@ def check_instagram_email(company_name, requests):
         return None
 
 def generate_enhanced_domains(company_name, country=None, state=None, city=None):
-    """Generate comprehensive domain patterns using location data for better discovery"""
+    """Generate focused domain patterns prioritizing most successful patterns"""
     clean_name = company_name.lower().replace(' ', '')
     domains = []
     
-    # PRIORITY: Most common patterns first
-    priority_patterns = [
+    # TOP PRIORITY: Highest success rate patterns (try these first)
+    top_priority = [
         f"{clean_name}.com",
         f"{company_name.lower().replace(' ', '-')}.com",
-        f"{company_name.lower().replace(' ', '')}.com",
     ]
     
-    # Add www versions of priority patterns
+    # Multi-word company priority patterns  
     if ' ' in company_name:
         words = company_name.lower().split()
-        first_word = words[0]
-        priority_patterns.extend([
-            f"{first_word}.com",
-            f"{''.join([word[0] for word in words if word])}.com",  # Acronym
-        ])
+        if len(words) >= 2:
+            first_word = words[0]
+            # Only add if meaningful (not articles)
+            if first_word not in ['the', 'a', 'an']:
+                top_priority.append(f"{first_word}.com")
+            
+            # Acronym (only if 2-4 words)
+            if 2 <= len(words) <= 4:
+                acronym = ''.join([word[0] for word in words if word and word not in ['the', 'a', 'an']])
+                if len(acronym) >= 2:
+                    top_priority.append(f"{acronym}.com")
     
-    domains.extend(priority_patterns)
+    domains.extend(top_priority)
     
-    # SECONDARY: Business and location patterns
-    secondary_patterns = [
+    # SECONDARY: Business and location patterns (if location data exists)
+    secondary = []
+    
+    if country and str(country).lower() in ['usa', 'us', 'united states']:
+        secondary.extend([f"{clean_name}.us", f"{clean_name}usa.com"])
+    elif country and str(country).lower() in ['canada', 'ca']:
+        secondary.append(f"{clean_name}.ca")
+    elif country and str(country).lower() in ['uk', 'united kingdom', 'england']:
+        secondary.append(f"{clean_name}.co.uk")
+    
+    # Common business patterns
+    secondary.extend([
         f"{clean_name}.net",
-        f"{clean_name}.org", 
-        f"{clean_name}.co",
-        f"{clean_name}.biz",
         f"{clean_name}inc.com",
-        f"{clean_name}llc.com",
-    ]
+        f"{clean_name}.org",
+    ])
     
-    # Location-enhanced patterns (only if location data available)
-    if country:
-        country_lower = str(country).lower()
-        if country_lower in ['usa', 'us', 'united states']:
-            secondary_patterns.extend([f"{clean_name}.us", f"{clean_name}usa.com"])
-        elif country_lower in ['canada', 'ca']:
-            secondary_patterns.extend([f"{clean_name}.ca"])
-        elif country_lower in ['uk', 'united kingdom', 'england']:
-            secondary_patterns.extend([f"{clean_name}.co.uk"])
+    domains.extend(secondary)
     
-    domains.extend(secondary_patterns)
-    
-    # Remove duplicates while preserving order, limit to top 12 for speed
+    # Remove duplicates, limit to top 8 for maximum speed
     seen = set()
     unique_domains = []
     for domain in domains:
-        if domain and domain not in seen and len(domain) > 4:
+        if domain and domain not in seen and len(domain) > 3:
             seen.add(domain)
             unique_domains.append(domain)
     
-    return unique_domains[:12]  # Reduced from 25 to 12 for speed
+    return unique_domains[:8]  # Reduced to 8 most promising domains
 
 def find_real_email_only(company_name, requests, location_data=None):
     """Find REAL emails only - no guessing, high accuracy"""
@@ -658,23 +664,23 @@ def find_real_email_only(company_name, requests, location_data=None):
         ]
 
     for domain in domains_to_try:
+        # Try HTTPS first (most common)
         for protocol in ['https://', 'http://']:
             website = f"{protocol}{domain}"
             
-            # Try base domain first
             try:
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-                response = requests.get(website, headers=headers, timeout=3)  # Reduced timeout
+                response = requests.get(website, headers=headers, timeout=2)  # Reduced to 2s
                 if response.status_code == 200:
-                    # Website found - now look for REAL emails only
+                    # Website found - check homepage first
                     email = extract_real_emails(website, requests)
                     if email:
                         return email, f"Homepage: {website}"
                     
-                    # PRIORITY: Check only top 5 most likely contact pages first
-                    priority_contact_pages = ['/contact', '/contact-us', '/about', '/info', '/support']
+                    # Check just the top 3 most effective contact pages
+                    top_contact_pages = ['/contact', '/contact-us', '/about']
                     
-                    for page in priority_contact_pages:
+                    for page in top_contact_pages:
                         try:
                             contact_url = f"{website}{page}"
                             contact_email = extract_real_emails(contact_url, requests)
@@ -683,31 +689,17 @@ def find_real_email_only(company_name, requests, location_data=None):
                         except:
                             continue
                     
-                    # Only check subdomains if we haven't found anything yet
-                    subdomains = ['www', 'mail', 'contact']  # Reduced list
-                    for subdomain in subdomains:
+                    # If main domain didn't work, try just www subdomain
+                    if not website.startswith(f"{protocol}www."):
                         try:
-                            subdomain_url = f"{protocol}{subdomain}.{domain}"
-                            if subdomain_url != website:  # Don't duplicate
-                                subdomain_email = extract_real_emails(subdomain_url, requests)
-                                if subdomain_email:
-                                    return subdomain_email, f"Subdomain: {subdomain_url}"
+                            www_url = f"{protocol}www.{domain}"
+                            www_email = extract_real_emails(www_url, requests)
+                            if www_email:
+                                return www_email, f"WWW Homepage: {www_url}"
                         except:
-                            continue
+                            pass
                     
-                    # If we found a working website but no emails yet, try a few more contact pages
-                    additional_contact_pages = ['/contact_us', '/sales', '/customer-service', '/help', '/team']
-                    
-                    for page in additional_contact_pages:
-                        try:
-                            contact_url = f"{website}{page}"
-                            contact_email = extract_real_emails(contact_url, requests)
-                            if contact_email:
-                                return contact_email, f"Contact page: {contact_url}"
-                        except:
-                            continue
-                    
-                    # Found working website but no emails
+                    # Found website but no emails
                     return None, f"Website found ({website}) but no emails detected"
             except:
                 continue
