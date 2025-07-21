@@ -52,7 +52,7 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>📧 Overview:</strong> Advanced email extraction system that finds real business contact emails for fashion companies with 70-85% success rate.<br>
+<strong>📧 Overview:</strong> Accurate email extraction system that finds real business contact emails with high quality results.<br>
 <strong>⚡ Capacity:</strong> Process up to 300 companies in 2-5 minutes depending on file size.
 </div>
 <div class="instructions">
@@ -275,8 +275,8 @@ def process_companies_accurate(companies_df, logger, requests):
             
             result = {
                 'company': company_name,
-                'email': email if email else 'Not found',
-                'source': source if source else 'No emails found on website'
+                'email': email if email else '',  # Empty instead of 'Not found'
+                'source': source if source else 'No emails found'
             }
             
             # Add any additional columns from original data
@@ -318,6 +318,71 @@ def clean_company_name(name):
             name = name[:-len(suffix)].strip()
     
     return name if name else None
+
+def search_engines_fallback(company_name, requests):
+    """Search Bing and Yahoo when direct domain guessing fails"""
+    try:
+        search_engines = [
+            f"https://www.bing.com/search?q=\"{company_name}\"+website",
+            f"https://search.yahoo.com/search?p=\"{company_name}\"+official+site"
+        ]
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        for search_url in search_engines:
+            try:
+                response = requests.get(search_url, headers=headers, timeout=5)
+                if response.status_code == 200:
+                    content = response.text.lower()
+                    
+                    # Simple extraction of URLs from search results
+                    import re
+                    url_pattern = re.compile(r'https?://(?:www\.)?([a-zA-Z0-9.-]+\.com)[^"\s]*')
+                    matches = url_pattern.findall(content)
+                    
+                    # Filter for likely company websites
+                    for domain in matches[:10]:
+                        if any(word in domain.lower() for word in company_name.lower().split() if len(word) > 3):
+                            try:
+                                test_url = f"https://www.{domain}"
+                                test_response = requests.head(test_url, timeout=3, allow_redirects=True)
+                                if test_response.status_code == 200:
+                                    return test_url
+                            except:
+                                try:
+                                    test_url = f"https://{domain}"
+                                    test_response = requests.head(test_url, timeout=3, allow_redirects=True)
+                                    if test_response.status_code == 200:
+                                        return test_url
+                                except:
+                                    continue
+                
+                time.sleep(0.5)  # Rate limiting between search engines
+            except:
+                continue
+                
+        return None
+    except:
+        return None
+
+def guess_common_email_formats(website):
+    """Guess common email formats when website found but no emails extracted"""
+    try:
+        # Extract domain from website
+        domain = website.replace('https://', '').replace('http://', '').replace('www.', '').split('/')[0]
+        
+        # Common business email prefixes (ordered by likelihood)
+        prefixes = ['info', 'contact', 'sales', 'support', 'hello', 'inquiry', 'admin', 'office']
+        
+        for prefix in prefixes:
+            # Return first format - most likely to be real
+            return f"{prefix}@{domain}"
+            
+        return None
+    except:
+        return None
 
 def find_dynamic_contact_links(website, requests):
     """Find contact links by parsing the homepage"""
@@ -494,10 +559,14 @@ def find_real_email_only(company_name, requests):
                 except:
                     pass
                 
+                # No email guessing - only real extracted emails for accuracy
+                
                 # Website found but no emails - return this info
                 return None, f"Website found ({website}) but no emails detected"
         except:
             continue
+    
+    # No search engine fallback - too inaccurate, returns random websites
     
     # Final fallback: Check Instagram for publicly available contact info
     instagram_email = check_instagram_email(company_name, requests)
@@ -522,17 +591,25 @@ def extract_real_emails(url, requests):
         if not emails:
             return None
         
-        # Filter out common non-business emails
+        # Filter out common non-business emails and obviously fake ones
         business_emails = []
         skip_patterns = [
             'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
             'noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster',
-            'wordpress.com', 'example.com', 'test.com', 'localhost'
+            'wordpress.com', 'example.com', 'test.com', 'localhost',
+            'cognitive.ai', 'openai.com', 'ai.com', 'tech.com',  # Filter AI/tech domains
+            'admin@admin', 'test@test', 'user@user', '@a.com', '@b.com'  # Filter fake patterns
         ]
         
         for email in emails:
             email_lower = email.lower()
-            if not any(skip in email_lower for skip in skip_patterns):
+            # More strict validation - email must look legitimate
+            if (not any(skip in email_lower for skip in skip_patterns) and 
+                len(email) > 5 and 
+                '@' in email and 
+                '.' in email.split('@')[1] and
+                not email.startswith('@') and
+                not email.endswith('@')):
                 business_emails.append(email)
         
         if not business_emails:
