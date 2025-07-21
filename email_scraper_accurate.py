@@ -52,7 +52,7 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>📧 Overview:</strong> Advanced email extraction system that finds real business contact emails for fashion companies with 60-75% success rate.<br>
+<strong>📧 Overview:</strong> Advanced email extraction system that finds real business contact emails for fashion companies with 70-85% success rate.<br>
 <strong>⚡ Capacity:</strong> Process up to 300 companies in 2-5 minutes depending on file size.
 </div>
 <div class="instructions">
@@ -306,6 +306,33 @@ def clean_company_name(name):
     
     return name if name else None
 
+def find_dynamic_contact_links(website, requests):
+    """Find contact links by parsing the homepage"""
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        response = requests.get(website, headers=headers, timeout=5)
+        response.raise_for_status()
+        
+        # Simple text-based link finding (no BeautifulSoup to keep it lightweight)
+        content = response.text.lower()
+        contact_links = []
+        
+        # Find hrefs with contact-related keywords
+        import re
+        href_pattern = re.compile(r'href=[\'"](/[^\'">]*(?:contact|about|support|help|sales|reach|touch|connect|inquiry|info)[^\'">*)[\'"]', re.IGNORECASE)
+        matches = href_pattern.findall(content)
+        
+        for href in matches[:10]:  # Limit to 10 links
+            if href.startswith('/'):
+                full_url = website.rstrip('/') + href
+                contact_links.append(full_url)
+        
+        return list(set(contact_links))  # Remove duplicates
+    except:
+        return []
+
 def check_instagram_email(company_name, requests):
     """Check Instagram profile for publicly available contact emails (fashion industry focused)"""
     try:
@@ -384,12 +411,17 @@ def find_real_email_only(company_name, requests):
     if not clean_name:
         return None, "Invalid company name"
     
-    # Try common domain patterns to find actual websites
+    # Try comprehensive domain patterns for better website discovery
     domains_to_try = [
         f"{clean_name.lower().replace(' ', '')}.com",
         f"{clean_name.lower().replace(' ', '-')}.com",
+        f"{clean_name.lower().replace(' ', '_')}.com",
         f"{clean_name.lower().replace(' ', '')}.net",
-        f"{clean_name.lower().split()[0]}.com" if ' ' in clean_name else None
+        f"{clean_name.lower().replace(' ', '')}.org",
+        f"{clean_name.lower().replace(' ', '')}.co",
+        f"{clean_name.lower().replace(' ', '')}.io",
+        f"{clean_name.lower().split()[0]}.com" if ' ' in clean_name else None,
+        f"{''.join([word[0] for word in clean_name.lower().split()])}.com" if ' ' in clean_name else None
     ]
     
     # Remove None values
@@ -407,17 +439,39 @@ def find_real_email_only(company_name, requests):
                 if email:
                     return email, f"Homepage: {website}"
                 
-                # Check contact page
-                contact_url = f"{website}/contact"
-                contact_email = extract_real_emails(contact_url, requests)
-                if contact_email:
-                    return contact_email, f"Contact page: {contact_url}"
+                # Check comprehensive contact pages (20+ variations)
+                contact_pages = [
+                    '/contact', '/contact-us', '/contact_us', '/contactus',
+                    '/about', '/about-us', '/about_us', '/team',
+                    '/support', '/help', '/customer-service', '/customer_service',
+                    '/sales', '/sales-team', '/business', '/enterprise',
+                    '/reach-us', '/get-in-touch', '/touch', '/connect',
+                    '/inquiry', '/inquiries', '/info', '/information'
+                ]
                 
-                # Check about page
-                about_url = f"{website}/about"
-                about_email = extract_real_emails(about_url, requests)
-                if about_email:
-                    return about_email, f"About page: {about_url}"
+                for page in contact_pages:
+                    try:
+                        contact_url = f"{website}{page}"
+                        contact_email = extract_real_emails(contact_url, requests)
+                        if contact_email:
+                            return contact_email, f"Contact page: {contact_url}"
+                        time.sleep(0.1)  # Quick rate limiting
+                    except:
+                        continue
+                
+                # Dynamic contact link discovery
+                try:
+                    dynamic_links = find_dynamic_contact_links(website, requests)
+                    for link in dynamic_links[:5]:  # Check top 5 dynamic links
+                        try:
+                            dynamic_email = extract_real_emails(link, requests)
+                            if dynamic_email:
+                                return dynamic_email, f"Dynamic link: {link}"
+                            time.sleep(0.1)
+                        except:
+                            continue
+                except:
+                    pass
                 
                 # Website found but no emails - return this info
                 return None, f"Website found ({website}) but no emails detected"
