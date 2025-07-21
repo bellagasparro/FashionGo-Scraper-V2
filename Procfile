@@ -1,1 +1,1 @@
-web: gunicorn --bind 0.0.0.0:$PORT email_scraper_light:app 
+web: gunicorn --bind 0.0.0.0:$PORT email_scraper_simplified:app 
