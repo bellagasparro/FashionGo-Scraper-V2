@@ -51,9 +51,9 @@ button:hover { background: #2980b9; }
 </div>
 <div class="upload-area">
 <h3>📁 Upload Company List</h3>
-<p>Upload an Excel file (.xlsx) with a 'company' column</p>
+<p>Upload a CSV or Excel file (.csv, .xlsx) with a 'company' column</p>
 <form id="uploadForm" enctype="multipart/form-data">
-<input type="file" id="fileInput" name="file" accept=".xlsx" required>
+<input type="file" id="fileInput" name="file" accept=".csv,.xlsx" required>
 <br>
 <button type="submit">🔍 Find Real Emails</button>
 <button type="button" class="reset-btn" onclick="resetForm()">🔄 Reset</button>
@@ -131,20 +131,26 @@ def upload_file():
         if not file.filename or file.filename == '':
             return jsonify({'success': False, 'error': 'No file selected'})
         
-        if not file.filename.lower().endswith('.xlsx'):
-            return jsonify({'success': False, 'error': 'Please upload an Excel (.xlsx) file'})
+        if not file.filename.lower().endswith(('.csv', '.xlsx')):
+            return jsonify({'success': False, 'error': 'Please upload a CSV (.csv) or Excel (.xlsx) file'})
         
         # Save uploaded file
         filename = secure_filename(file.filename)
         filepath = os.path.join(tempfile.gettempdir(), filename)
         file.save(filepath)
         
-        # Read the Excel file
+        # Read the CSV or Excel file
         try:
-            df = pd.read_excel(filepath)
+            if filepath.lower().endswith('.csv'):
+                df = pd.read_csv(filepath)
+            elif filepath.lower().endswith('.xlsx'):
+                df = pd.read_excel(filepath)
+            else:
+                os.remove(filepath)
+                return jsonify({'success': False, 'error': 'Unsupported file format'})
         except Exception as e:
             os.remove(filepath)
-            return jsonify({'success': False, 'error': f'Error reading Excel file: {str(e)}'})
+            return jsonify({'success': False, 'error': f'Error reading file: {str(e)}'})
         
         # Check if 'company' column exists
         if 'company' not in df.columns:
