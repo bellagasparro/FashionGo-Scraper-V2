@@ -32,6 +32,15 @@ button:hover { background: #2980b9; }
 .error { color: #e74c3c; background: #fdf2f2; padding: 15px; border-radius: 5px; border-left: 4px solid #e74c3c; }
 .success { color: #27ae60; background: #f0f9f4; padding: 15px; border-radius: 5px; border-left: 4px solid #27ae60; }
 .info { background: #e8f4fd; padding: 15px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #3498db; }
+.instructions { background: #f0f9f4; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #27ae60; }
+.instructions h3 { margin-top: 0; color: #27ae60; }
+.steps { margin: 15px 0; }
+.step { padding: 8px 0; border-bottom: 1px solid #e8f5e8; }
+.step:last-child { border-bottom: none; }
+.example { background: #fff; padding: 15px; border-radius: 5px; margin-top: 15px; border: 1px solid #d5e8d5; }
+.example code { background: #f8f9fa; padding: 10px; display: block; border-radius: 3px; font-family: monospace; font-size: 14px; line-height: 1.4; }
+.warning { background: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 15px; border: 1px solid #ffeaa7; border-left: 4px solid #fdcb6e; }
+.warning strong { color: #d63031; }
 .stats { display: flex; justify-content: space-around; margin: 20px 0; }
 .stat { text-align: center; padding: 15px; background: #fff; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
 .stat h3 { margin: 0; color: #2c3e50; }
@@ -49,9 +58,42 @@ button:hover { background: #2980b9; }
 <strong>Expected Success Rate: 60-75% (high accuracy)</strong><br>
 <strong>Processing Time: 2-3 min (100 companies), 8-10 min (300 companies)</strong>
 </div>
+<div class="instructions">
+<h3>📋 Quick Setup Instructions</h3>
+<div class="steps">
+<div class="step">
+<strong>Step 1:</strong> Prepare your file in <strong>CSV (.csv)</strong> or <strong>Excel (.xlsx)</strong> format
+</div>
+<div class="step">
+<strong>Step 2:</strong> Ensure you have a column named exactly <strong>'company'</strong> (lowercase)
+</div>
+<div class="step">
+<strong>Step 3:</strong> Keep file size under <strong>16MB</strong> (up to 300 companies recommended)
+</div>
+<div class="step">
+<strong>Step 4:</strong> Upload and let us find the emails automatically!
+</div>
+</div>
+<div class="example">
+<strong>📄 Example file structure:</strong><br>
+<code>
+company,industry<br>
+Nike,Sportswear<br>
+Zara,Fashion<br>
+H&M,Retail
+</code>
+</div>
+<div class="warning">
+<strong>⚠️ Common Issues:</strong><br>
+• Column named "Company" (uppercase) → Change to "company" (lowercase)<br>
+• Column named "business_name" → Change to "company"<br>
+• File over 16MB → Split into smaller files<br>
+• Wrong format (.txt, .doc) → Convert to .csv or .xlsx
+</div>
+</div>
 <div class="upload-area">
 <h3>📁 Upload Company List</h3>
-<p>Upload a CSV or Excel file (.csv, .xlsx) with a 'company' column</p>
+<p>Ready? Upload your file below:</p>
 <form id="uploadForm" enctype="multipart/form-data">
 <input type="file" id="fileInput" name="file" accept=".csv,.xlsx" required>
 <br>
