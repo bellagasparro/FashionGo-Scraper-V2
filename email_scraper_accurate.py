@@ -224,36 +224,77 @@ def upload_file():
         df = df.rename(columns={company_column: 'company'})
         
         # Process companies - accurate emails only
-        results = process_companies_hybrid(df, logger)
+        try:
+            logger.info("Starting process_companies_hybrid...")
+            results = process_companies_hybrid(df, logger)
+            logger.info(f"process_companies_hybrid completed with {len(results) if results else 0} results")
+        except Exception as process_error:
+            logger.error(f"Error in process_companies_hybrid: {type(process_error).__name__}: {str(process_error)}")
+            raise Exception(f"Processing failed: {str(process_error)}")
         
-        # Create results DataFrame
-        results_df = pd.DataFrame(results)
+        # Validate results before DataFrame creation
+        if not results:
+            logger.error("No results returned from processing")
+            return jsonify({'success': False, 'error': 'No results generated during processing'})
+        
+        # Create results DataFrame with better error handling
+        try:
+            logger.info(f"Creating DataFrame from {len(results)} results...")
+            # Log the structure of first result for debugging
+            if results:
+                first_result = results[0]
+                logger.info(f"First result structure: {list(first_result.keys()) if hasattr(first_result, 'keys') else type(first_result)}")
+            
+            results_df = pd.DataFrame(results)
+            logger.info(f"DataFrame created successfully with shape: {results_df.shape}")
+        except Exception as df_error:
+            logger.error(f"Error creating DataFrame: {type(df_error).__name__}: {str(df_error)}")
+            # Try to provide more debug info
+            logger.error(f"Results type: {type(results)}, Length: {len(results) if hasattr(results, '__len__') else 'unknown'}")
+            if results and len(results) > 0:
+                logger.error(f"First result: {results[0]}")
+            raise Exception(f"DataFrame creation failed: {str(df_error)}")
         
         # Save results with unique filename
-        timestamp = int(time.time())
-        output_filename = f"email_results_{timestamp}.xlsx"
-        output_path = os.path.join(tempfile.gettempdir(), output_filename)
-        results_df.to_excel(output_path, index=False)
+        try:
+            timestamp = int(time.time())
+            output_filename = f"email_results_{timestamp}.xlsx"
+            output_path = os.path.join(tempfile.gettempdir(), output_filename)
+            logger.info(f"Saving results to: {output_path}")
+            results_df.to_excel(output_path, index=False)
+            logger.info("Excel file saved successfully")
+        except Exception as save_error:
+            logger.error(f"Error saving Excel file: {type(save_error).__name__}: {str(save_error)}")
+            raise Exception(f"File save failed: {str(save_error)}")
         
         # Clean up input file
-        os.remove(filepath)
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                logger.info("Input file cleaned up")
+        except Exception as cleanup_error:
+            logger.warning(f"Could not clean up input file: {str(cleanup_error)}")
         
-        # Calculate statistics
-        total_companies = len(results)
-        emails_found = len([r for r in results if r['email'] and r['email'].strip() and '@' in r['email'] and r['email'] != 'Error occurred'])
-        
-        logger.info(f"Processing completed: {emails_found}/{total_companies} real emails found")
+        # Calculate statistics with error handling
+        try:
+            total_companies = len(results)
+            emails_found = len([r for r in results if r and r.get('email') and str(r.get('email')).strip() and '@' in str(r.get('email')) and str(r.get('email')) != 'Error occurred'])
+            logger.info(f"Statistics calculated: {emails_found}/{total_companies} real emails found")
+        except Exception as stats_error:
+            logger.error(f"Error calculating statistics: {type(stats_error).__name__}: {str(stats_error)}")
+            total_companies = len(results) if results else 0
+            emails_found = 0
         
         # Debug: Log first few results to see what we're actually getting
-        debug_results = results[:5]  # First 5 results for debugging
-        for i, result in enumerate(debug_results):
-            logger.info(f"Debug result {i+1}: company='{result['company']}', email='{result['email']}', source='{result['source']}'")
-        
-        # Debug: Count different types of results
-        valid_emails = [r for r in results if r['email'] and r['email'].strip() and '@' in r['email'] and r['email'] != 'Error occurred']
-        empty_emails = [r for r in results if not r['email'] or not r['email'].strip()]
-        error_emails = [r for r in results if 'Error' in str(r['email'])]
-        logger.info(f"Debug counts: valid={len(valid_emails)}, empty={len(empty_emails)}, errors={len(error_emails)}")
+        try:
+            debug_results = results[:5]  # First 5 results for debugging
+            for i, result in enumerate(debug_results):
+                if result and hasattr(result, 'get'):
+                    logger.info(f"Debug result {i+1}: company='{result.get('company', 'N/A')}', email='{result.get('email', 'N/A')}', source='{result.get('source', 'N/A')}'")
+                else:
+                    logger.info(f"Debug result {i+1}: {result}")
+        except Exception as debug_error:
+            logger.warning(f"Debug logging failed: {str(debug_error)}")
         
         return jsonify({
             'success': True,
@@ -263,7 +304,19 @@ def upload_file():
         })
         
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+        error_msg = f"Upload error - Type: {type(e).__name__}, Message: {str(e)}"
+        logger.error(error_msg)
+        # Provide more helpful error message
+        if "NameError" in str(type(e)):
+            error_msg = f"Variable not defined: {str(e)}"
+        elif "KeyError" in str(type(e)):
+            error_msg = f"Missing data field: {str(e)}"
+        elif not str(e) or str(e) == "":
+            error_msg = f"Unknown error of type: {type(e).__name__}"
+        else:
+            error_msg = str(e)
+        
+        return jsonify({'success': False, 'error': error_msg})
 
 @app.route('/download/<filename>')
 def download_file(filename):
@@ -364,93 +417,147 @@ def process_companies_hybrid(companies_df, logger):
     processed_companies = set()
     start_time = time.time()
     
-    logger.info(f"Starting hybrid AI + web scraping with {len(companies_df)} total rows")
-    
-    # Remove duplicates and limit to 300 companies
-    unique_companies = []
-    skipped_empty = 0
-    skipped_duplicates = 0
-    
-    for idx, row in companies_df.iterrows():
-        company_name = clean_company_name(row.get('company', ''))
+    try:
+        logger.info(f"Starting hybrid AI + web scraping with {len(companies_df)} total rows")
         
-        if not company_name:
-            skipped_empty += 1
-            continue
-            
-        if company_name in processed_companies:
-            skipped_duplicates += 1
-            continue
-            
-        unique_companies.append({'company': company_name, 'original_row': row})
-        processed_companies.add(company_name)
+        # Remove duplicates and limit to 300 companies
+        unique_companies = []
+        skipped_empty = 0
+        skipped_duplicates = 0
         
-        if len(unique_companies) >= 300:
-            break
-    
-    logger.info(f"Company processing summary: {len(unique_companies)} unique companies, {skipped_empty} empty/invalid, {skipped_duplicates} duplicates")
-    
-    for i, company_data in enumerate(unique_companies):
-        company_name = company_data['company']
-        original_row = company_data['original_row']
-        
-        company_start_time = time.time()
-        logger.info(f"Processing {i+1}/{len(unique_companies)}: {company_name}")
-        
-        try:
-            # Prepare location data
-            location_data = {}
-            for col in original_row.index:
-                col_lower = col.lower()
-                if 'city' in col_lower:
-                    location_data['city'] = original_row[col]
-                elif 'state' in col_lower:
-                    location_data['state'] = original_row[col] 
-                elif 'country' in col_lower:
-                    location_data['country'] = original_row[col]
-            
-            # Use hybrid AI + web scraping
-            email, source = find_real_emails_enhanced(company_name, location_data)
-            
-            # DEBUG: Log exactly what was returned
-            logger.info(f"DEBUG: Email extraction returned - email: '{email}' (type: {type(email)}), source: '{source}'")
-            
-            company_time = time.time() - company_start_time
-            logger.info(f"Company {company_name} processed in {company_time:.2f}s - Email: {'Found' if email else 'Not found'}")
-            
-            result = {
-                'company': company_name,
-                'email': email if email else '',
-                'source': source if source else 'No emails found'
-            }
-            
-            # Add any additional columns from original data
-            for col in original_row.index:
-                if col.lower() not in ['company']:
-                    result[col] = original_row[col]
-            
-            results.append(result)
-            
-        except Exception as e:
-            logger.error(f"Error processing {company_name}: {str(e)}")
-            result = {
-                'company': company_name,
-                'email': '',
-                'source': f'Error: {str(e)}'
-            }
-            # Add any additional columns from original data even on error
+        for idx, row in companies_df.iterrows():
             try:
-                for col in original_row.index:
-                    if col.lower() not in ['company']:
-                        result[col] = original_row[col]
-            except:
-                pass
-            results.append(result)
-    
-    total_time = time.time() - start_time
-    logger.info(f"Hybrid processing completed in {total_time:.2f} seconds")
-    
-    return results
+                company_name = clean_company_name(row.get('company', ''))
+                
+                if not company_name:
+                    skipped_empty += 1
+                    continue
+                    
+                if company_name in processed_companies:
+                    skipped_duplicates += 1
+                    continue
+                    
+                unique_companies.append({'company': company_name, 'original_row': row})
+                processed_companies.add(company_name)
+                
+                if len(unique_companies) >= 300:
+                    break
+            except Exception as row_error:
+                logger.error(f"Error processing row {idx}: {str(row_error)}")
+                skipped_empty += 1
+                continue
+        
+        logger.info(f"Company processing summary: {len(unique_companies)} unique companies, {skipped_empty} empty/invalid, {skipped_duplicates} duplicates")
+        
+        if not unique_companies:
+            logger.warning("No valid companies found to process")
+            return []
+        
+        for i, company_data in enumerate(unique_companies):
+            try:
+                company_name = company_data['company']
+                original_row = company_data['original_row']
+                
+                company_start_time = time.time()
+                logger.info(f"Processing {i+1}/{len(unique_companies)}: {company_name}")
+                
+                # Prepare location data
+                location_data = {}
+                try:
+                    for col in original_row.index:
+                        col_lower = col.lower()
+                        if 'city' in col_lower:
+                            location_data['city'] = original_row[col]
+                        elif 'state' in col_lower:
+                            location_data['state'] = original_row[col] 
+                        elif 'country' in col_lower:
+                            location_data['country'] = original_row[col]
+                except Exception as location_error:
+                    logger.warning(f"Error extracting location data for {company_name}: {str(location_error)}")
+                    location_data = {}
+                
+                # Use hybrid AI + web scraping
+                try:
+                    email, source = find_real_emails_enhanced(company_name, location_data)
+                except Exception as search_error:
+                    logger.error(f"Error in email search for {company_name}: {str(search_error)}")
+                    email, source = None, f"Search error: {str(search_error)}"
+                
+                # DEBUG: Log exactly what was returned
+                logger.info(f"DEBUG: Email extraction returned - email: '{email}' (type: {type(email)}), source: '{source}'")
+                
+                company_time = time.time() - company_start_time
+                logger.info(f"Company {company_name} processed in {company_time:.2f}s - Email: {'Found' if email else 'Not found'}")
+                
+                # Create result with guaranteed structure
+                result = {
+                    'company': str(company_name) if company_name else '',
+                    'email': str(email) if email else '',
+                    'source': str(source) if source else 'No emails found'
+                }
+                
+                # Add any additional columns from original data
+                try:
+                    for col in original_row.index:
+                        if col.lower() not in ['company']:
+                            # Ensure we handle any data type properly
+                            value = original_row[col]
+                            if pd.isna(value):
+                                result[col] = ''
+                            else:
+                                result[col] = str(value)
+                except Exception as column_error:
+                    logger.warning(f"Error adding additional columns for {company_name}: {str(column_error)}")
+                
+                results.append(result)
+                
+            except Exception as company_error:
+                logger.error(f"Error processing company {company_data.get('company', 'unknown')}: {str(company_error)}")
+                
+                # Create error result with guaranteed structure
+                try:
+                    company_name = company_data.get('company', 'Unknown Company')
+                    original_row = company_data.get('original_row', {})
+                    
+                    result = {
+                        'company': str(company_name),
+                        'email': '',
+                        'source': f'Processing error: {str(company_error)}'
+                    }
+                    
+                    # Try to add additional columns even on error
+                    try:
+                        if hasattr(original_row, 'index'):
+                            for col in original_row.index:
+                                if col.lower() not in ['company']:
+                                    value = original_row[col]
+                                    result[col] = str(value) if not pd.isna(value) else ''
+                    except:
+                        pass
+                    
+                    results.append(result)
+                except Exception as error_result_error:
+                    logger.error(f"Could not create error result: {str(error_result_error)}")
+                    # Absolute fallback
+                    results.append({
+                        'company': 'Error Processing Company',
+                        'email': '',
+                        'source': 'Fatal processing error'
+                    })
+        
+        total_time = time.time() - start_time
+        logger.info(f"Hybrid processing completed in {total_time:.2f} seconds")
+        
+        return results
+        
+    except Exception as function_error:
+        logger.error(f"Fatal error in process_companies_hybrid: {str(function_error)}")
+        # Return at least something to prevent undefined errors
+        return [{
+            'company': 'Processing Failed',
+            'email': '',
+            'source': f'Function error: {str(function_error)}'
+        }]
 
 def clean_company_name(name):
     if not name or str(name).strip() == '' or str(name).lower() in ['nan', 'null', 'none', '', 'n/a']:
