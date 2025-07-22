@@ -63,8 +63,8 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>📧 Overview:</strong> Enhanced hybrid AI + accurate web scraping. AI suggests precise domains, then validates company match before extracting emails from 3 key pages.<br>
-<strong>⚡ Capacity:</strong> Process up to 300 companies in ~2-4 minutes. Each company takes 3-5 seconds with accuracy validation.
+<strong>�� Overview:</strong> Fashion-focused hybrid AI + web scraping. Prioritizes wholesale@ and contact pages for fashion companies. Checks 10 pages per website with wholesale/trade/B2B focus.<br>
+<strong>⚡ Capacity:</strong> Process up to 300 companies in ~3-5 minutes. Each company takes 4-6 seconds with comprehensive wholesale-focused extraction.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
@@ -790,8 +790,9 @@ def extract_real_emails_comprehensive(url, requests, company_name):
             found_company_words = sum(1 for word in company_words if word in content)
             company_match_ratio = found_company_words / len(company_words)
             
-            # If less than 30% of company words found, this might be wrong website
-            if company_match_ratio < 0.3:
+            # Relaxed validation: If less than 20% of company words found, this might be wrong website
+            # (was 30%, now 20% to improve success rate)
+            if company_match_ratio < 0.2:
                 logger.info(f"DEBUG: Low company match for {company_name} on {url} ({company_match_ratio:.2f})")
                 # Don't return emails from likely wrong websites
                 return None
@@ -824,8 +825,8 @@ def extract_real_emails_comprehensive(url, requests, company_name):
             '.png', '.jpg', '.jpeg', '.gif', '.webp', 'img_', 'flags@'
         ]
         
-        # Prioritize business-looking emails
-        priority_prefixes = ['info@', 'contact@', 'sales@', 'support@', 'hello@', 'orders@', 'wholesale@']
+        # Prioritize business-looking emails (with wholesale first for fashion companies)
+        priority_prefixes = ['wholesale@', 'info@', 'contact@', 'sales@', 'support@', 'hello@', 'orders@']
         
         # First pass: look for priority emails from relevant domain
         for email in all_emails:
@@ -869,7 +870,7 @@ def extract_real_emails_comprehensive(url, requests, company_name):
         return None
 
 def find_real_emails_enhanced(company_name, location_data=None):
-    """Enhanced email finding with accurate domain selection"""
+    """Enhanced email finding with focus on wholesale and contact pages"""
     import requests
     
     # Get AI-suggested domains (only 2 high-quality ones)
@@ -884,11 +885,18 @@ def find_real_emails_enhanced(company_name, location_data=None):
                 response = requests.get(website, headers=headers, timeout=4, allow_redirects=True)
                 
                 if response.status_code == 200:
-                    # Check fewer pages but more accurately
+                    # Check pages prioritizing wholesale and contact (fashion-focused)
                     pages_to_check = [
-                        '',  # Homepage
-                        '/contact',
-                        '/about'
+                        '/wholesale',           # #1 priority for fashion companies
+                        '/contact',            # #2 priority
+                        '/contact-us',         # Common variation
+                        '/wholesale-inquiry',  # Fashion-specific
+                        '/trade',              # Another wholesale variation
+                        '/b2b',               # Business-to-business
+                        '',                   # Homepage
+                        '/about',             # About page
+                        '/about-us',          # About variation
+                        '/support'            # Support page
                     ]
                     
                     for page in pages_to_check:
