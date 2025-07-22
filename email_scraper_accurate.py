@@ -63,8 +63,8 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>📧 Overview:</strong> Hybrid AI + web scraping approach. AI suggests most likely domains, then real web scraping finds verified emails. Fast and accurate.<br>
-<strong>⚡ Capacity:</strong> Process up to 300 companies in ~2-4 minutes. Each company takes 3-5 seconds with smart targeting.
+<strong>�� Overview:</strong> Enhanced hybrid AI + comprehensive web scraping. AI suggests domains, then checks 7 pages per website with multiple email patterns for maximum success rate.<br>
+<strong>⚡ Capacity:</strong> Process up to 300 companies in ~3-6 minutes. Each company takes 4-8 seconds with comprehensive extraction.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
@@ -410,7 +410,7 @@ def process_companies_hybrid(companies_df, logger):
                     location_data['country'] = original_row[col]
             
             # Use hybrid AI + web scraping
-            email, source = find_real_emails_fast(company_name, location_data)
+            email, source = find_real_emails_enhanced(company_name, location_data)
             
             # DEBUG: Log exactly what was returned
             logger.info(f"DEBUG: Email extraction returned - email: '{email}' (type: {type(email)}), source: '{source}'")
@@ -788,8 +788,89 @@ nikesportswear.com
         clean_name = company_name.lower().replace(' ', '')
         return [f"{clean_name}.com"]
 
-def find_real_emails_fast(company_name, location_data=None):
-    """Fast email finding using AI-suggested domains + real web scraping"""
+def extract_real_emails_comprehensive(url, requests):
+    """Comprehensive email extraction from webpage"""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, headers=headers, timeout=4)
+        response.raise_for_status()
+        
+        content = response.text
+        
+        # Multiple email regex patterns to catch different formats
+        email_patterns = [
+            r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',  # Standard
+            r'mailto:([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})',  # Mailto links
+            r'"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})"',  # Quoted emails
+            r"'([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})'",  # Single quoted
+        ]
+        
+        all_emails = []
+        for pattern in email_patterns:
+            found_emails = re.findall(pattern, content, re.IGNORECASE)
+            if isinstance(found_emails, list):
+                all_emails.extend(found_emails)
+        
+        # Also search for obfuscated emails (common patterns)
+        obfuscated_patterns = [
+            r'([A-Za-z0-9._%+-]+)\s*\[\s*at\s*\]\s*([A-Za-z0-9.-]+)\s*\[\s*dot\s*\]\s*([A-Za-z]{2,})',  # name [at] domain [dot] com
+            r'([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9.-]+)\s*\.\s*([A-Za-z]{2,})',  # spaced emails
+        ]
+        
+        for pattern in obfuscated_patterns:
+            matches = re.findall(pattern, content, re.IGNORECASE)
+            for match in matches:
+                if len(match) >= 3:
+                    email = f"{match[0]}@{match[1]}.{match[2]}"
+                    all_emails.append(email)
+        
+        logger.info(f"DEBUG: Found {len(all_emails)} raw emails on {url}: {all_emails[:3] if all_emails else 'None'}")
+        
+        if not all_emails:
+            return None
+        
+        # Relaxed filtering - only skip obvious spam/personal emails
+        skip_patterns = [
+            'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
+            'noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster',
+            'example.com', 'test.com', 'localhost'
+        ]
+        
+        # Prioritize business-looking emails
+        priority_prefixes = ['info@', 'contact@', 'sales@', 'support@', 'hello@', 'admin@', 'mail@']
+        
+        # First pass: look for priority emails
+        for email in all_emails:
+            email_clean = str(email).strip().lower()
+            if (len(email_clean) > 4 and 
+                '@' in email_clean and 
+                '.' in email_clean.split('@')[1] and
+                not any(skip in email_clean for skip in skip_patterns)):
+                
+                if any(email_clean.startswith(prefix) for prefix in priority_prefixes):
+                    logger.info(f"DEBUG: Returning priority email from {url}: {email_clean}")
+                    return email_clean
+        
+        # Second pass: return any valid business email
+        for email in all_emails:
+            email_clean = str(email).strip().lower()
+            if (len(email_clean) > 4 and 
+                '@' in email_clean and 
+                '.' in email_clean.split('@')[1] and
+                not any(skip in email_clean for skip in skip_patterns)):
+                
+                logger.info(f"DEBUG: Returning first valid email from {url}: {email_clean}")
+                return email_clean
+        
+        logger.info(f"DEBUG: All emails filtered out from {url}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"DEBUG: Error extracting emails from {url}: {str(e)}")
+        return None
+
+def find_real_emails_enhanced(company_name, location_data=None):
+    """Enhanced email finding with comprehensive page checking"""
     import requests
     
     # Get AI-suggested domains (only 2-3 instead of 10+)
@@ -804,19 +885,26 @@ def find_real_emails_fast(company_name, location_data=None):
                 response = requests.get(website, headers=headers, timeout=4, allow_redirects=True)
                 
                 if response.status_code == 200:
-                    # Found website - extract real emails
-                    email = extract_real_emails_simple(website, requests)
-                    if email:
-                        return email, f"Real email from: {website}"
+                    # Check multiple pages in order of likelihood
+                    pages_to_check = [
+                        '',  # Homepage
+                        '/contact',
+                        '/contact-us', 
+                        '/about',
+                        '/about-us',
+                        '/team',
+                        '/support'
+                    ]
                     
-                    # Quick check of /contact page
-                    try:
-                        contact_url = f"{website.rstrip('/')}/contact"
-                        contact_email = extract_real_emails_simple(contact_url, requests)
-                        if contact_email:
-                            return contact_email, f"Real email from: {contact_url}"
-                    except:
-                        pass
+                    for page in pages_to_check:
+                        try:
+                            check_url = f"{website.rstrip('/')}{page}" if page else website
+                            email = extract_real_emails_comprehensive(check_url, requests)
+                            if email:
+                                page_desc = f"{page}" if page else "homepage"
+                                return email, f"Real email from {website} ({page_desc})"
+                        except:
+                            continue
                     
                     # Found website but no emails
                     return None, f"Website found ({website}) but no emails detected"
@@ -824,38 +912,6 @@ def find_real_emails_fast(company_name, location_data=None):
                 continue
     
     return None, f"No website found for {company_name}"
-
-def extract_real_emails_simple(url, requests):
-    """Simple and fast email extraction from webpage"""
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(url, headers=headers, timeout=3)
-        response.raise_for_status()
-        
-        # Simple email regex
-        email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
-        emails = email_pattern.findall(response.text)
-        
-        logger.info(f"DEBUG: Found {len(emails)} raw emails on {url}: {emails[:3] if emails else 'None'}")
-        
-        if not emails:
-            return None
-        
-        # Quick filtering
-        skip_patterns = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'noreply', 'no-reply', 'example.com']
-        
-        for email in emails:
-            email_lower = email.lower()
-            if not any(skip in email_lower for skip in skip_patterns) and len(email) > 4:
-                logger.info(f"DEBUG: Returning email from {url}: {email}")
-                return email
-        
-        logger.info(f"DEBUG: All emails filtered out from {url}")
-        return None
-        
-    except Exception as e:
-        logger.error(f"DEBUG: Error extracting emails from {url}: {str(e)}")
-        return None
 
 @app.route('/health')
 def health():
