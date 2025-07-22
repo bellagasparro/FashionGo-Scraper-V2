@@ -82,7 +82,7 @@ def find_emails_on_page(url, timeout=5):
             ]):
                 continue
                 
-            # Basic domain validation
+                # Basic domain validation
             if '@' not in email_lower or '.' not in email_lower.split('@')[-1]:
                 continue
                 
@@ -148,7 +148,7 @@ def search_company_website(company_name):
                 if response.status_code == 200:
                     urls = extract_business_urls_from_search(response.text, clean_name)
                     for url in urls[:3]:  # Check top 3 results
-                        if is_valid_business_url(url):
+                                if is_valid_business_url(url):
                             logger.info(f"Found via {engine['name']}: {url}")
                             return url
             except Exception as e:

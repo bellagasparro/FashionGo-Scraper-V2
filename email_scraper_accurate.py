@@ -63,8 +63,8 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>�� Overview:</strong> Simple, proven email extraction like last week that gave ~30% success rate. Clean domain generation + 3 key pages per site. Fast and reliable.<br>
-<strong>⚡ Capacity:</strong> Process up to 200 companies in ~3-5 minutes. Each company takes 2-4 seconds with simple, effective extraction.
+<strong>📧 Overview:</strong> Fashion-focused email extraction prioritizing wholesale/trade pages where B2B contacts are listed. Checks 8 pages per site with wholesale priority.<br>
+<strong>⚡ Capacity:</strong> Process up to 250 companies in ~4-6 minutes. Each company takes 3-5 seconds with fashion-specific page priority to reach ~30% success rate.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
@@ -358,7 +358,7 @@ def download_file(filename):
         return jsonify({'error': f'Download failed: {str(e)}'}), 500
 
 def find_real_emails_simple(company_name, location_data=None):
-    """Simple, proven email extraction - revert to working logic"""
+    """Simple, proven email extraction - with fashion/wholesale priority"""
     import requests
     
     # Simple domain generation like last week
@@ -376,7 +376,10 @@ def find_real_emails_simple(company_name, location_data=None):
         if len(words) >= 2 and len(words[0]) >= 3:
             domains_to_try.append(f"{words[0]}.com")
     
-    for domain in domains_to_try[:3]:  # Only try 3 domains max
+    # Add .net variation (many businesses use this)
+    domains_to_try.append(f"{clean_name}.net")
+    
+    for domain in domains_to_try[:5]:  # Try 5 domains max
         for protocol in ['https://', 'http://']:
             website = f"{protocol}{domain}"
             
@@ -385,8 +388,17 @@ def find_real_emails_simple(company_name, location_data=None):
                 response = requests.get(website, headers=headers, timeout=5, allow_redirects=True)
                 
                 if response.status_code == 200:
-                    # Check just 3 key pages like last week
-                    pages_to_check = ['', '/contact', '/about']
+                    # PRIORITIZE wholesale/trade pages for fashion companies
+                    pages_to_check = [
+                        '/wholesale',        # #1 priority - where fashion companies put B2B contacts
+                        '/trade',           # #2 priority - another common B2B page
+                        '/wholesale-inquiry', # Fashion-specific inquiry
+                        '/b2b',             # Business-to-business
+                        '/contact',         # General contact
+                        '/contact-us',      # Contact variation  
+                        '',                 # Homepage
+                        '/about'            # About page
+                    ]
                     
                     for page in pages_to_check:
                         try:
@@ -406,27 +418,62 @@ def find_real_emails_simple(company_name, location_data=None):
     return None, f"No website found for {company_name}"
 
 def extract_emails_simple(url, requests):
-    """Simple email extraction like last week"""
+    """Simple email extraction with better filtering"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=4)
         response.raise_for_status()
         
-        # Simple email regex
+        # Better email regex that doesn't capture image filenames
         email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
         emails = email_pattern.findall(response.text)
         
         if not emails:
             return None
         
-        # Simple filtering like last week
-        skip_patterns = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'noreply', 'no-reply', 'example.com']
+        # Enhanced filtering to improve quality
+        skip_patterns = [
+            # Personal email providers
+            'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 'bellsouth.net', 
+            'comcast.net', 'verizon.net', 'att.net', 'live.com', 'msn.com',
+            # Service/placeholder emails  
+            'noreply', 'no-reply', 'donotreply', 'example.com', 'youremail.com', 'yoursite.com',
+            'test.com', 'placeholder', 'sample.com', 'demo.com',
+            # Website builder and service providers
+            'webador.com', 'wixpress.com', 'sentry', 'shopify.com', 'squarespace.com',
+            'wordpress.com', 'weebly.com', 'godaddy.com', 'bluehost.com',
+            # Technical/system emails
+            'mailer-daemon', 'postmaster', 'admin@localhost', 'root@',
+            # Image/file extensions (to avoid capturing filenames)
+            '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.doc', '.zip'
+        ]
         
-        # Look for business emails first
+        # Look for business emails first, prioritizing business prefixes
+        business_prefixes = ['info@', 'contact@', 'sales@', 'support@', 'hello@', 'orders@', 'admin@']
+        
+        # First pass: look for priority business emails
         for email in emails:
             email_lower = email.lower()
-            if not any(skip in email_lower for skip in skip_patterns) and len(email) > 4:
-                return email_lower
+            if (len(email_lower) > 4 and 
+                '@' in email_lower and 
+                not any(skip in email_lower for skip in skip_patterns)):
+                
+                # Prioritize business-like email prefixes
+                if any(email_lower.startswith(prefix) for prefix in business_prefixes):
+                    return email_lower
+        
+        # Second pass: any valid business email that passed filtering
+        for email in emails:
+            email_lower = email.lower()
+            if (len(email_lower) > 4 and 
+                '@' in email_lower and 
+                not any(skip in email_lower for skip in skip_patterns)):
+                
+                # Additional check: make sure domain looks legitimate (not service provider)
+                domain = email_lower.split('@')[1]
+                if (len(domain) > 4 and 
+                    not any(service in domain for service in ['webador', 'wix', 'shopify', 'squarespace', 'wordpress'])):
+                    return email_lower
         
         return None
         
@@ -454,7 +501,7 @@ def process_companies_simple(companies_df, logger):
                 unique_companies.append({'company': company_name, 'original_row': row})
                 processed_companies.add(company_name)
                 
-                if len(unique_companies) >= 200:  # Reduced from 300
+                if len(unique_companies) >= 250:  # Increased from 200 to get more results
                     break
             except Exception:
                 continue
