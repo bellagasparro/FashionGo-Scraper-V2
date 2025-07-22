@@ -63,8 +63,8 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>📧 Overview:</strong> Fashion-focused hybrid AI + web scraping + Instagram fallback. Prioritizes wholesale/contact pages, then checks Instagram business profiles when web scraping fails.<br>
-<strong>⚡ Capacity:</strong> Process up to 300 companies in ~4-6 minutes. Each company takes 5-7 seconds with comprehensive extraction + Instagram fallback.
+<strong>�� Overview:</strong> Aggressive fashion-focused email extraction. Relaxed validation, 3 domains per company, 10 pages + Instagram fallback. Optimized for maximum success rate.<br>
+<strong>⚡ Capacity:</strong> Process up to 300 companies in ~4-7 minutes. Each company takes 5-8 seconds with aggressive multi-source extraction.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
@@ -710,7 +710,7 @@ def generate_enhanced_domains(company_name, country=None, state=None, city=None)
     return unique_domains[:10]  # Slightly more domains
 
 def generate_smart_domains_ai(company_name, location_data=None):
-    """Use AI to generate highly targeted domain suggestions"""
+    """Use AI to generate highly targeted domain suggestions with better fallbacks"""
     try:
         from openai import OpenAI
         client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
@@ -732,20 +732,23 @@ def generate_smart_domains_ai(company_name, location_data=None):
 
 Company: "{company_name}"{location_context}
 
-Generate ONLY 2 most likely domains for this specific company's official website. Focus on:
+Generate the 3 most likely domains for this specific company's official website. Focus on:
 1. Exact company name variations (remove spaces, add hyphens, abbreviations)
-2. Fashion/boutique/clothing related terms if company name is generic
-3. Avoid generic words like "bad.com", "heart.com", "house.com", "sugar.com"
+2. Fashion/boutique/clothing related terms 
+3. Common business domain patterns
+
+IMPORTANT: Avoid obviously generic domains like "bad.com", "heart.com", "house.com", "sugar.com", "focused.com", "beyond.com", "angels.com"
 
 Return ONLY the domain names (no http/https), one per line.
 Example format:
 piperandscoot.com
-piper-scoot.com"""
+piper-scoot.com
+piperandscootboutique.com"""
 
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=100,
+            max_tokens=150,
             temperature=0.1
         )
         
@@ -766,18 +769,33 @@ piper-scoot.com"""
                 if domain not in generic_domains:
                     domains.append(domain)
         
+        # Add manual fallback domains if AI didn't generate enough
+        if len(domains) < 3:
+            clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', company_name.lower())
+            clean_name = re.sub(r'\s+', '', clean_name)
+            
+            fallback_domains = [
+                f"{clean_name}.com",
+                f"{clean_name}boutique.com",
+                f"{clean_name}shop.com"
+            ]
+            
+            for fallback in fallback_domains:
+                if fallback not in domains and len(domains) < 3:
+                    domains.append(fallback)
+        
         logger.info(f"AI suggested domains for {company_name}: {domains}")
-        return domains[:2]  # Max 2 domains
+        return domains[:3]  # Max 3 domains
         
     except Exception as e:
         logger.error(f"AI domain generation failed for {company_name}: {str(e)}")
         # Fallback to simple domain generation
         clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', company_name.lower())
         clean_name = re.sub(r'\s+', '', clean_name)
-        return [f"{clean_name}.com"]
+        return [f"{clean_name}.com", f"{clean_name}boutique.com"]
 
 def extract_real_emails_comprehensive(url, requests, company_name):
-    """Comprehensive email extraction with company name validation"""
+    """Comprehensive email extraction with relaxed validation"""
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=4)
@@ -785,21 +803,22 @@ def extract_real_emails_comprehensive(url, requests, company_name):
         
         content = response.text.lower()  # Convert to lowercase for validation
         
-        # Validate this is likely the right company website
+        # Much more relaxed company validation for higher success rate
         company_words = re.sub(r'[^a-zA-Z0-9\s]', '', company_name.lower()).split()
         company_words = [word for word in company_words if len(word) > 2]  # Remove short words
         
         # Check if company name appears in page content
-        if company_words:
+        if company_words and len(company_words) >= 2:  # Only validate if multiple words
             found_company_words = sum(1 for word in company_words if word in content)
             company_match_ratio = found_company_words / len(company_words)
             
-            # Relaxed validation: If less than 20% of company words found, this might be wrong website
-            # (was 30%, now 20% to improve success rate)
-            if company_match_ratio < 0.2:
-                logger.info(f"DEBUG: Low company match for {company_name} on {url} ({company_match_ratio:.2f})")
-                # Don't return emails from likely wrong websites
-                return None
+            # Very relaxed validation: If less than 10% of company words found, this might be wrong website
+            # (was 20%, now 10% for much higher success rate)
+            if company_match_ratio < 0.1:
+                logger.info(f"DEBUG: Very low company match for {company_name} on {url} ({company_match_ratio:.2f})")
+                # Still allow single-word companies or if it's a homepage
+                if len(company_words) > 1 and '/contact' not in url and '/wholesale' not in url:
+                    return None
         
         # Extract emails with multiple patterns
         email_patterns = [
@@ -820,7 +839,7 @@ def extract_real_emails_comprehensive(url, requests, company_name):
         if not all_emails:
             return None
         
-        # STRICT filtering - avoid random/irrelevant emails
+        # Relaxed filtering - only skip obvious spam/personal emails
         skip_patterns = [
             'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
             'noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster',
@@ -832,7 +851,7 @@ def extract_real_emails_comprehensive(url, requests, company_name):
         # Prioritize business-looking emails (with wholesale first for fashion companies)
         priority_prefixes = ['wholesale@', 'info@', 'contact@', 'sales@', 'support@', 'hello@', 'orders@']
         
-        # First pass: look for priority emails from relevant domain
+        # First pass: look for priority emails (relaxed domain matching)
         for email in all_emails:
             email_clean = str(email).strip().lower()
             if (len(email_clean) > 4 and 
@@ -840,17 +859,17 @@ def extract_real_emails_comprehensive(url, requests, company_name):
                 '.' in email_clean.split('@')[1] and
                 not any(skip in email_clean for skip in skip_patterns)):
                 
-                # Check if email domain is related to the website domain
+                # More relaxed domain matching
                 email_domain = email_clean.split('@')[1]
                 site_domain = url.replace('http://', '').replace('https://', '').split('/')[0]
                 
-                # Prefer emails from same domain or business-like prefixes
-                if (email_domain in site_domain or site_domain in email_domain or
-                    any(email_clean.startswith(prefix) for prefix in priority_prefixes)):
+                # Accept emails if they're business-like OR from related domains
+                if (any(email_clean.startswith(prefix) for prefix in priority_prefixes) or
+                    email_domain in site_domain or site_domain in email_domain):
                     logger.info(f"DEBUG: Returning priority email from {url}: {email_clean}")
                     return email_clean
         
-        # Second pass: any valid business email from same domain
+        # Second pass: any valid business email (even more relaxed)
         for email in all_emails:
             email_clean = str(email).strip().lower()
             if (len(email_clean) > 4 and 
@@ -858,13 +877,8 @@ def extract_real_emails_comprehensive(url, requests, company_name):
                 '.' in email_clean.split('@')[1] and
                 not any(skip in email_clean for skip in skip_patterns)):
                 
-                email_domain = email_clean.split('@')[1]
-                site_domain = url.replace('http://', '').replace('https://', '').split('/')[0]
-                
-                # Only return if from same domain
-                if email_domain in site_domain or site_domain in email_domain:
-                    logger.info(f"DEBUG: Returning domain-matched email from {url}: {email_clean}")
-                    return email_clean
+                logger.info(f"DEBUG: Returning relaxed validation email from {url}: {email_clean}")
+                return email_clean
         
         logger.info(f"DEBUG: All emails filtered out from {url}")
         return None
