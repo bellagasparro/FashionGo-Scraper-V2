@@ -63,8 +63,8 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>�� Overview:</strong> AI-powered email generation using OpenAI GPT to predict most likely business email addresses. Fast, accurate, and intelligent.<br>
-<strong>⚡ Capacity:</strong> Process up to 300 companies in ~30-60 seconds. Each company takes 1-2 seconds with AI generation.
+<strong>📧 Overview:</strong> Hybrid AI + web scraping approach. AI suggests most likely domains, then real web scraping finds verified emails. Fast and accurate.<br>
+<strong>⚡ Capacity:</strong> Process up to 300 companies in ~2-4 minutes. Each company takes 3-5 seconds with smart targeting.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
@@ -223,7 +223,7 @@ def upload_file():
         df = df.rename(columns={company_column: 'company'})
         
         # Process companies - accurate emails only
-        results = process_companies_ai(df, logger)
+        results = process_companies_hybrid(df, logger)
         
         # Create results DataFrame
         results_df = pd.DataFrame(results)
@@ -344,13 +344,13 @@ Return ONLY the email addresses, one per line, no explanations:
         logger.error(f"OpenAI API error for {company_name}: {str(e)}")
         return None, f"AI generation failed: {str(e)}"
 
-def process_companies_ai(companies_df, logger):
-    """AI-powered processing - fast and accurate"""
+def process_companies_hybrid(companies_df, logger):
+    """Hybrid AI + web scraping - fast and accurate"""
     results = []
     processed_companies = set()
     start_time = time.time()
     
-    logger.info(f"Starting AI processing with {len(companies_df)} total rows")
+    logger.info(f"Starting hybrid AI + web scraping with {len(companies_df)} total rows")
     
     # Remove duplicates and limit to 300 companies
     unique_companies = []
@@ -361,14 +361,10 @@ def process_companies_ai(companies_df, logger):
         company_name = clean_company_name(row.get('company', ''))
         
         if not company_name:
-            # Debug: Log what was in the company field
-            raw_company = row.get('company', '')
-            logger.debug(f"Skipped empty company at row {idx}: raw='{raw_company}'")
             skipped_empty += 1
             continue
             
         if company_name in processed_companies:
-            logger.debug(f"Skipped duplicate company: '{company_name}'")
             skipped_duplicates += 1
             continue
             
@@ -376,15 +372,9 @@ def process_companies_ai(companies_df, logger):
         processed_companies.add(company_name)
         
         if len(unique_companies) >= 300:
-            logger.info(f"Reached maximum limit of 300 companies")
             break
     
     logger.info(f"Company processing summary: {len(unique_companies)} unique companies, {skipped_empty} empty/invalid, {skipped_duplicates} duplicates")
-    
-    # Debug: Log first few company names found
-    if unique_companies:
-        sample_companies = [comp['company'] for comp in unique_companies[:10]]
-        logger.info(f"Sample companies found: {sample_companies}")
     
     for i, company_data in enumerate(unique_companies):
         company_name = company_data['company']
@@ -394,23 +384,19 @@ def process_companies_ai(companies_df, logger):
         logger.info(f"Processing {i+1}/{len(unique_companies)}: {company_name}")
         
         try:
-            # Prepare location data for enhanced email finding
+            # Prepare location data
             location_data = {}
             for col in original_row.index:
                 col_lower = col.lower()
-                if 'city' in col_lower or 'state' in col_lower or 'country' in col_lower or 'phone' in col_lower:
-                    # Map various column names to standard keys
-                    if 'city' in col_lower:
-                        location_data['city'] = original_row[col]
-                    elif 'state' in col_lower:
-                        location_data['state'] = original_row[col] 
-                    elif 'country' in col_lower:
-                        location_data['country'] = original_row[col]
-                    elif 'phone' in col_lower:
-                        location_data['phone'] = original_row[col]
+                if 'city' in col_lower:
+                    location_data['city'] = original_row[col]
+                elif 'state' in col_lower:
+                    location_data['state'] = original_row[col] 
+                elif 'country' in col_lower:
+                    location_data['country'] = original_row[col]
             
-            # Use AI to generate email instead of web scraping
-            email, source = generate_business_emails_ai(company_name, location_data)
+            # Use hybrid AI + web scraping
+            email, source = find_real_emails_fast(company_name, location_data)
             
             company_time = time.time() - company_start_time
             logger.info(f"Company {company_name} processed in {company_time:.2f}s - Email: {'Found' if email else 'Not found'}")
@@ -418,7 +404,7 @@ def process_companies_ai(companies_df, logger):
             result = {
                 'company': company_name,
                 'email': email if email else '',
-                'source': source if source else 'No emails generated'
+                'source': source if source else 'No emails found'
             }
             
             # Add any additional columns from original data
@@ -445,7 +431,7 @@ def process_companies_ai(companies_df, logger):
             results.append(result)
     
     total_time = time.time() - start_time
-    logger.info(f"AI processing completed in {total_time:.2f} seconds")
+    logger.info(f"Hybrid processing completed in {total_time:.2f} seconds")
     
     return results
 
@@ -702,154 +688,151 @@ def generate_enhanced_domains(company_name, country=None, state=None, city=None)
     
     return unique_domains[:10]  # Slightly more domains
 
+def generate_smart_domains_ai(company_name, location_data=None):
+    """Use AI to generate only the 2-3 most likely domains to check (with fallback)"""
+    try:
+        # Prepare location context
+        location_context = ""
+        if location_data:
+            city = location_data.get('city', '')
+            state = location_data.get('state', '')
+            country = location_data.get('country', '')
+            if city or state or country:
+                location_context = f" located in {city}, {state}, {country}".strip(', ')
+        
+        # Always have fallback domains ready
+        clean_name = company_name.lower().replace(' ', '')
+        fallback_domains = [f"{clean_name}.com"]
+        
+        # Add simple variations
+        if ' ' in company_name:
+            words = company_name.lower().split()
+            if len(words) >= 2 and len(words[0]) >= 3:
+                fallback_domains.append(f"{words[0]}.com")
+        
+        # Try AI enhancement if OpenAI is available
+        try:
+            if os.getenv('OPENAI_API_KEY'):
+                # Create prompt for OpenAI to predict domains only
+                prompt = f"""
+Given the company name "{company_name}"{location_context}, predict the 2 most likely domain names for this company's website.
 
-def find_real_email_only(company_name, requests, location_data=None):
-    """Find REAL emails only - no guessing, high accuracy"""
-    if not company_name:
-        return None, "No company name provided"
-    
-    clean_name = clean_company_name(company_name)
-    if not clean_name:
-        return None, "Invalid company name"
-    
-    # Extract location data for enhanced domain discovery
-    city = None
-    state = None
-    country = None
-    phone = None
-    
-    if location_data:
-        city = location_data.get('city')
-        state = location_data.get('state')
-        country = location_data.get('country')
-        phone = location_data.get('phone')
-    
-    # Enhanced domain patterns using location data
-    domains_to_try = generate_enhanced_domains(clean_name, country, state, city)
-    
-    # Remove None values and ensure we have fallback patterns
-    if not domains_to_try:
-        domains_to_try = [
-            f"{clean_name.lower().replace(' ', '')}.com",
-            f"{clean_name.lower().replace(' ', '-')}.com",
-            f"{clean_name.lower().replace(' ', '_')}.com",
-        ]
+Rules:
+1. Generate realistic domain names based on the company name
+2. Consider common business naming patterns
+3. Use standard TLDs (.com is most common)
+4. Return ONLY the domain names (like company.com), one per line, no explanations
 
+Example:
+Nike Sportswear
+nike.com
+nikesportswear.com
+"""
+                
+                from openai import OpenAI
+                client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+                
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are an expert at predicting company domain names. Generate only the most likely domains."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=50,
+                    temperature=0.2
+                )
+                
+                # Extract domains from response
+                domains_text = response.choices[0].message.content
+                if domains_text:
+                    domains_text = domains_text.strip()
+                    ai_domains = [domain.strip() for domain in domains_text.split('\n') if domain.strip() and '.' in domain]
+                    
+                    # Validate domain format
+                    valid_domains = []
+                    for domain in ai_domains:
+                        # Basic domain validation
+                        if re.match(r'^[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}$', domain):
+                            valid_domains.append(domain)
+                    
+                    if valid_domains:
+                        logger.info(f"AI suggested domains for {company_name}: {valid_domains}")
+                        return valid_domains[:2]  # Return top 2
+        except Exception as e:
+            logger.warning(f"AI domain prediction failed for {company_name}: {str(e)}")
+        
+        # Return fallback if AI fails or isn't available
+        logger.info(f"Using fallback domains for {company_name}: {fallback_domains}")
+        return fallback_domains[:2]
+            
+    except Exception as e:
+        logger.error(f"Smart domain generation failed for {company_name}: {str(e)}")
+        # Ultimate fallback
+        clean_name = company_name.lower().replace(' ', '')
+        return [f"{clean_name}.com"]
+
+def find_real_emails_fast(company_name, location_data=None):
+    """Fast email finding using AI-suggested domains + real web scraping"""
+    import requests
+    
+    # Get AI-suggested domains (only 2-3 instead of 10+)
+    domains_to_try = generate_smart_domains_ai(company_name, location_data)
+    
     for domain in domains_to_try:
-        # Try HTTPS first (most common)
         for protocol in ['https://', 'http://']:
             website = f"{protocol}{domain}"
             
             try:
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-                response = requests.get(website, headers=headers, timeout=2)  # Reduced to 2s
+                response = requests.get(website, headers=headers, timeout=4, allow_redirects=True)
+                
                 if response.status_code == 200:
-                    # Website found - check homepage first
-                    email = extract_real_emails(website, requests)
+                    # Found website - extract real emails
+                    email = extract_real_emails_simple(website, requests)
                     if email:
-                        return email, f"Homepage: {website}"
+                        return email, f"Real email from: {website}"
                     
-                    # Check just the top 3 most effective contact pages
-                    top_contact_pages = ['/contact', '/contact-us', '/about']
-                    
-                    for page in top_contact_pages:
-                        try:
-                            contact_url = f"{website}{page}"
-                            contact_email = extract_real_emails(contact_url, requests)
-                            if contact_email:
-                                return contact_email, f"Contact page: {contact_url}"
-                        except:
-                            continue
-                    
-                    # If main domain didn't work, try just www subdomain
-                    if not website.startswith(f"{protocol}www."):
-                        try:
-                            www_url = f"{protocol}www.{domain}"
-                            www_email = extract_real_emails(www_url, requests)
-                            if www_email:
-                                return www_email, f"WWW Homepage: {www_url}"
-                        except:
-                            pass
+                    # Quick check of /contact page
+                    try:
+                        contact_url = f"{website.rstrip('/')}/contact"
+                        contact_email = extract_real_emails_simple(contact_url, requests)
+                        if contact_email:
+                            return contact_email, f"Real email from: {contact_url}"
+                    except:
+                        pass
                     
                     # Found website but no emails
                     return None, f"Website found ({website}) but no emails detected"
             except:
                 continue
     
-    # No search engine fallback - too inaccurate, returns random websites
-    
-    # Final fallback: Check Instagram for publicly available contact info
-    instagram_email = check_instagram_email(company_name, requests)
-    if instagram_email:
-        return instagram_email[0], f"Instagram profile: {instagram_email[1]}"
-    
     return None, f"No website found for {company_name}"
 
-def extract_real_emails(url, requests):
-    """Extract real emails from webpage - simplified and effective"""
+def extract_real_emails_simple(url, requests):
+    """Simple and fast email extraction from webpage"""
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=3)
         response.raise_for_status()
         
-        # DEBUG: Log response details
-        print(f"DEBUG: Checking {url} - Status: {response.status_code}, Content length: {len(response.text)}")
-        
-        # Simple but effective email regex
+        # Simple email regex
         email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
         emails = email_pattern.findall(response.text)
         
-        # DEBUG: Log what emails were found
-        print(f"DEBUG: Raw emails found on {url}: {emails[:5] if emails else 'None'}")
-        
         if not emails:
-            # DEBUG: Check if page has typical email-hiding patterns
-            content_lower = response.text.lower()
-            if 'contact' in content_lower:
-                print(f"DEBUG: {url} has 'contact' but no emails found")
-            if 'mailto:' in content_lower:
-                print(f"DEBUG: {url} has 'mailto:' links but emails not extracted")
             return None
         
-        # Basic filtering - not too strict
-        business_emails = []
-        skip_patterns = [
-            'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com',
-            'noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster',
-            'wordpress.com', 'example.com', 'test.com'
-        ]
+        # Quick filtering
+        skip_patterns = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'noreply', 'no-reply', 'example.com']
         
         for email in emails:
             email_lower = email.lower()
-            if (not any(skip in email_lower for skip in skip_patterns) and 
-                len(email) > 4 and 
-                '@' in email and 
-                '.' in email.split('@')[1]):
-                business_emails.append(email)
-        
-        # DEBUG: Log filtering results
-        print(f"DEBUG: After filtering - Business emails: {business_emails}")
-        
-        if not business_emails:
-            print(f"DEBUG: {url} - All emails filtered out")
-            return None
-        
-        # Simple prioritization
-        priority_prefixes = ['info@', 'contact@', 'sales@', 'support@', 'hello@']
-        
-        # Return priority email if found, otherwise first valid email
-        for email in business_emails:
-            if any(email.lower().startswith(prefix) for prefix in priority_prefixes):
-                print(f"DEBUG: {url} - Returning priority email: {email}")
+            if not any(skip in email_lower for skip in skip_patterns) and len(email) > 4:
                 return email
         
-        print(f"DEBUG: {url} - Returning first email: {business_emails[0]}")
-        return business_emails[0]
+        return None
         
-    except Exception as e:
-        print(f"DEBUG: Error extracting from {url}: {str(e)}")
+    except:
         return None
 
 @app.route('/health')
