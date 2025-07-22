@@ -131,24 +131,36 @@ resultsDiv.style.display = 'block';
 fetch('/upload', {
 method: 'POST',
 body: formData
-}).then(response => response.json()).then(data => {
+}).then(response => {
+if (!response.ok) {
+throw new Error(`Server error: ${response.status} ${response.statusText}`);
+}
+return response.json();
+}).then(data => {
+// Validate that data exists and has expected structure
+if (!data) {
+throw new Error('Empty response from server');
+}
+
 if (data.success) {
 var html = '<div class="success">✅ Processing completed!</div>';
 html += '<div class="stats">';
-html += '<div class="stat"><h3>' + data.total + '</h3><p>Total Companies</p></div>';
-html += '<div class="stat"><h3>' + data.found + '</h3><p>Real Emails Found</p></div>';
-html += '<div class="stat"><h3>' + Math.round((data.found/data.total)*100) + '%</h3><p>Success Rate</p></div>';
+html += '<div class="stat"><h3>' + (data.total || 0) + '</h3><p>Total Companies</p></div>';
+html += '<div class="stat"><h3>' + (data.found || 0) + '</h3><p>Real Emails Found</p></div>';
+html += '<div class="stat"><h3>' + (data.total > 0 ? Math.round(((data.found || 0)/(data.total || 1))*100) : 0) + '%</h3><p>Success Rate</p></div>';
 html += '</div>';
 html += '<button onclick="downloadResults()">📥 Download Results</button>';
 document.getElementById('results').innerHTML = html;
 window.downloadUrl = data.download_url;
 } else {
-document.getElementById('error').innerHTML = '<div class="error">❌ Error: ' + data.error + '</div>';
+var errorMsg = data.error || 'Unknown server error occurred';
+document.getElementById('error').innerHTML = '<div class="error">❌ Error: ' + errorMsg + '</div>';
 document.getElementById('error').style.display = 'block';
 document.getElementById('results').style.display = 'none';
 }
 }).catch(error => {
-document.getElementById('error').innerHTML = '<div class="error">❌ Network error: ' + error.message + '</div>';
+var errorMessage = 'Network error: ' + (error.message || error.toString());
+document.getElementById('error').innerHTML = '<div class="error">❌ ' + errorMessage + '</div>';
 document.getElementById('error').style.display = 'block';
 document.getElementById('results').style.display = 'none';
 });
