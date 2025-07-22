@@ -63,8 +63,8 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>Overview:</strong> Aggressive fashion-focused email extraction. Relaxed validation, 3 domains per company, 10 pages + Instagram fallback. Optimized for maximum success rate.<br>
-<strong>⚡ Capacity:</strong> Process up to 300 companies in ~4-7 minutes. Each company takes 5-8 seconds with aggressive multi-source extraction.
+<strong>📧 Overview:</strong> Robust fashion-focused email extraction with comprehensive error handling. 3 domains, 10 pages + Instagram fallback. Detailed logging for debugging.<br>
+<strong>⚡ Capacity:</strong> Process up to 300 companies in ~4-7 minutes. Each company takes 5-8 seconds with full error recovery and detailed diagnostics.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
