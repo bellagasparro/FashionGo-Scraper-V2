@@ -63,8 +63,8 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>�� Overview:</strong> Fashion-focused hybrid AI + web scraping. Prioritizes wholesale@ and contact pages for fashion companies. Checks 10 pages per website with wholesale/trade/B2B focus.<br>
-<strong>⚡ Capacity:</strong> Process up to 300 companies in ~3-5 minutes. Each company takes 4-6 seconds with comprehensive wholesale-focused extraction.
+<strong>📧 Overview:</strong> Fashion-focused hybrid AI + web scraping + Instagram fallback. Prioritizes wholesale/contact pages, then checks Instagram business profiles when web scraping fails.<br>
+<strong>⚡ Capacity:</strong> Process up to 300 companies in ~4-6 minutes. Each company takes 5-7 seconds with comprehensive extraction + Instagram fallback.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
@@ -574,74 +574,78 @@ def find_dynamic_contact_links(website, requests):
     except:
         return []
 
-def check_instagram_email(company_name, requests):
-    """Check Instagram profile for publicly available contact emails (fashion industry focused)"""
+def check_instagram_business_email(company_name):
+    """Lightweight Instagram business email check (fallback only)"""
+    import requests
+    import time
+    
     try:
-        if not company_name:
-            return None
-            
-        clean_name = clean_company_name(company_name)
-        if not clean_name:
-            return None
+        # Generate possible Instagram usernames (max 2 to keep it fast)
+        clean_name = re.sub(r'[^a-zA-Z0-9]', '', company_name.lower())
+        possible_usernames = []
         
-        # Quick timeout to prevent hanging (max 8 seconds per company for Instagram)
-        start_time = time.time()
-            
-        # Create potential Instagram usernames for fashion companies (limited for speed)
-        potential_usernames = [
-            clean_name.lower().replace(' ', ''),
-            clean_name.lower().replace(' ', '_'),
-        ]
+        # Primary username - just company name
+        if len(clean_name) >= 3:
+            possible_usernames.append(clean_name)
+        
+        # Secondary username - add common business suffixes
+        if len(clean_name) >= 3 and len(clean_name) <= 20:
+            for suffix in ['boutique', 'shop']:
+                username = f"{clean_name}{suffix}"
+                if len(username) <= 30:  # Instagram username limit
+                    possible_usernames.append(username)
+                    break  # Only add one suffix to keep it fast
+        
+        # Limit to 2 usernames max for speed
+        possible_usernames = possible_usernames[:2]
+        
+        if not possible_usernames:
+            return None, "No valid Instagram usernames generated"
         
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         
-        # Check each potential username (with timeout protection)
-        for username in potential_usernames:
-            # Stop if taking too long
-            if time.time() - start_time > 8:
-                break
-                
+        for username in possible_usernames:
             try:
-                # Use Instagram's public profile endpoint (no login required)
-                instagram_url = f"https://www.instagram.com/{username}/"
+                # Instagram public page (no API required)
+                url = f"https://www.instagram.com/{username}/"
                 
-                response = requests.get(instagram_url, headers=headers, timeout=3)
+                response = requests.get(url, headers=headers, timeout=3)
+                
                 if response.status_code == 200:
-                    # Look for emails in the publicly visible content
-                    page_content = response.text.lower()
+                    content = response.text
                     
-                    # Instagram-specific email patterns (from bio/contact info)
-                    email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', re.IGNORECASE)
-                    emails = email_pattern.findall(page_content)
+                    # Look for email in bio/contact info
+                    email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
+                    emails = email_pattern.findall(content)
                     
                     if emails:
-                        # Filter out generic emails
+                        # Filter for business emails
                         business_emails = []
-                        skip_patterns = ['instagram.com', 'facebook.com', 'gmail.com', 'yahoo.com', 'hotmail.com']
+                        skip_patterns = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com']
                         
                         for email in emails:
                             email_lower = email.lower()
-                            if not any(skip in email_lower for skip in skip_patterns):
-                                business_emails.append(email)
+                            if not any(skip in email_lower for skip in skip_patterns) and len(email) > 4:
+                                business_emails.append(email_lower)
                         
                         if business_emails:
-                            return business_emails[0], instagram_url
+                            logger.info(f"Found Instagram business email for {company_name}: {business_emails[0]}")
+                            return business_emails[0], f"Instagram business email (@{username})"
                 
-                # Quick rate limiting
-                time.sleep(0.3)
+                # Rate limiting - small delay between requests
+                time.sleep(0.5)
                 
             except Exception as e:
-                # Continue to next username if this one fails
+                logger.error(f"Instagram check failed for @{username}: {str(e)}")
                 continue
         
-        return None
+        return None, "No Instagram business email found"
         
     except Exception as e:
-        # Don't let Instagram errors break the main flow
-        return None
+        logger.error(f"Instagram scraping failed for {company_name}: {str(e)}")
+        return None, "Instagram check error"
 
 def generate_enhanced_domains(company_name, country=None, state=None, city=None):
     """Generate focused domain patterns prioritizing most successful patterns"""
@@ -870,10 +874,10 @@ def extract_real_emails_comprehensive(url, requests, company_name):
         return None
 
 def find_real_emails_enhanced(company_name, location_data=None):
-    """Enhanced email finding with focus on wholesale and contact pages"""
+    """Enhanced email finding with web scraping + Instagram fallback"""
     import requests
     
-    # Get AI-suggested domains (only 2 high-quality ones)
+    # First: Try web scraping (primary method)
     domains_to_try = generate_smart_domains_ai(company_name, location_data)
     
     for domain in domains_to_try:
@@ -909,12 +913,24 @@ def find_real_emails_enhanced(company_name, location_data=None):
                         except:
                             continue
                     
-                    # Found website but no emails
-                    return None, f"Website found ({website}) but no emails detected"
+                    # Found website but no emails - continue to Instagram fallback
+                    website_found = website
+                    break
             except:
                 continue
     
-    return None, f"No website found for {company_name}"
+    # Fallback: Try Instagram if web scraping found no emails
+    logger.info(f"Web scraping found no emails for {company_name}, trying Instagram fallback...")
+    instagram_email, instagram_source = check_instagram_business_email(company_name)
+    
+    if instagram_email:
+        return instagram_email, instagram_source
+    
+    # If website was found but no emails anywhere
+    if 'website_found' in locals():
+        return None, f"Website found ({website_found}) but no emails detected (Instagram also checked)"
+    
+    return None, f"No website found for {company_name} (Instagram also checked)"
 
 @app.route('/health')
 def health():
