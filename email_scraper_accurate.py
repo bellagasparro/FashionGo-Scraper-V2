@@ -63,8 +63,8 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>📧 Overview:</strong> Fashion-focused email extraction prioritizing wholesale/trade pages where B2B contacts are listed. Checks 8 pages per site with wholesale priority.<br>
-<strong>⚡ Capacity:</strong> Process up to 250 companies in ~4-6 minutes. Each company takes 3-5 seconds with fashion-specific page priority to reach ~30% success rate.
+<strong>�� Overview:</strong> Balanced fashion-focused extraction. Prioritizes wholesale/trade pages first, then contact/homepage. 4 pages per site to prevent server overload.<br>
+<strong>⚡ Capacity:</strong> Process up to 150 companies in ~3-4 minutes. Each company takes 2-3 seconds with wholesale priority but server-friendly limits.
 </div>
 <div class="instructions">
 <h3>📋 Quick Setup Instructions</h3>
@@ -358,7 +358,7 @@ def download_file(filename):
         return jsonify({'error': f'Download failed: {str(e)}'}), 500
 
 def find_real_emails_simple(company_name, location_data=None):
-    """Simple, proven email extraction - with fashion/wholesale priority"""
+    """Simple, proven email extraction - with fashion/wholesale priority but lightweight"""
     import requests
     
     # Simple domain generation like last week
@@ -370,34 +370,27 @@ def find_real_emails_simple(company_name, location_data=None):
         f"{company_name.lower().replace(' ', '-')}.com"
     ]
     
-    # Add simple variations if company has multiple words
+    # Add one simple variation if company has multiple words
     if ' ' in company_name:
         words = company_name.lower().split()
         if len(words) >= 2 and len(words[0]) >= 3:
             domains_to_try.append(f"{words[0]}.com")
     
-    # Add .net variation (many businesses use this)
-    domains_to_try.append(f"{clean_name}.net")
-    
-    for domain in domains_to_try[:5]:  # Try 5 domains max
+    for domain in domains_to_try[:3]:  # Back to 3 domains to prevent overload
         for protocol in ['https://', 'http://']:
             website = f"{protocol}{domain}"
             
             try:
                 headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-                response = requests.get(website, headers=headers, timeout=5, allow_redirects=True)
+                response = requests.get(website, headers=headers, timeout=4, allow_redirects=True)
                 
                 if response.status_code == 200:
-                    # PRIORITIZE wholesale/trade pages for fashion companies
+                    # ONLY 4 key pages to prevent server overload but prioritize wholesale
                     pages_to_check = [
                         '/wholesale',        # #1 priority - where fashion companies put B2B contacts
                         '/trade',           # #2 priority - another common B2B page
-                        '/wholesale-inquiry', # Fashion-specific inquiry
-                        '/b2b',             # Business-to-business
                         '/contact',         # General contact
-                        '/contact-us',      # Contact variation  
-                        '',                 # Homepage
-                        '/about'            # About page
+                        ''                  # Homepage
                     ]
                     
                     for page in pages_to_check:
@@ -501,7 +494,7 @@ def process_companies_simple(companies_df, logger):
                 unique_companies.append({'company': company_name, 'original_row': row})
                 processed_companies.add(company_name)
                 
-                if len(unique_companies) >= 250:  # Increased from 200 to get more results
+                if len(unique_companies) >= 150:  # Reduced to prevent 502 errors
                     break
             except Exception:
                 continue
