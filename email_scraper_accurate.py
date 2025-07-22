@@ -412,6 +412,9 @@ def process_companies_hybrid(companies_df, logger):
             # Use hybrid AI + web scraping
             email, source = find_real_emails_fast(company_name, location_data)
             
+            # DEBUG: Log exactly what was returned
+            logger.info(f"DEBUG: Email extraction returned - email: '{email}' (type: {type(email)}), source: '{source}'")
+            
             company_time = time.time() - company_start_time
             logger.info(f"Company {company_name} processed in {company_time:.2f}s - Email: {'Found' if email else 'Not found'}")
             
@@ -833,6 +836,8 @@ def extract_real_emails_simple(url, requests):
         email_pattern = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b')
         emails = email_pattern.findall(response.text)
         
+        logger.info(f"DEBUG: Found {len(emails)} raw emails on {url}: {emails[:3] if emails else 'None'}")
+        
         if not emails:
             return None
         
@@ -842,11 +847,14 @@ def extract_real_emails_simple(url, requests):
         for email in emails:
             email_lower = email.lower()
             if not any(skip in email_lower for skip in skip_patterns) and len(email) > 4:
+                logger.info(f"DEBUG: Returning email from {url}: {email}")
                 return email
         
+        logger.info(f"DEBUG: All emails filtered out from {url}")
         return None
         
-    except:
+    except Exception as e:
+        logger.error(f"DEBUG: Error extracting emails from {url}: {str(e)}")
         return None
 
 @app.route('/health')
