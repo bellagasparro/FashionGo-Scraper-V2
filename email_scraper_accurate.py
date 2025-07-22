@@ -63,7 +63,7 @@ button:hover { background: #2980b9; transform: translateY(-1px); box-shadow: 0 4
 <div class="container">
 <h1>🚀 FashionGo Email Scraper</h1>
 <div class="info">
-<strong>�� Overview:</strong> Aggressive fashion-focused email extraction. Relaxed validation, 3 domains per company, 10 pages + Instagram fallback. Optimized for maximum success rate.<br>
+<strong>Overview:</strong> Aggressive fashion-focused email extraction. Relaxed validation, 3 domains per company, 10 pages + Instagram fallback. Optimized for maximum success rate.<br>
 <strong>⚡ Capacity:</strong> Process up to 300 companies in ~4-7 minutes. Each company takes 5-8 seconds with aggressive multi-source extraction.
 </div>
 <div class="instructions">
@@ -711,6 +711,8 @@ def generate_enhanced_domains(company_name, country=None, state=None, city=None)
 
 def generate_smart_domains_ai(company_name, location_data=None):
     """Use AI to generate highly targeted domain suggestions with better fallbacks"""
+    domains = []  # Initialize the domains list
+    
     try:
         from openai import OpenAI
         client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
@@ -753,24 +755,25 @@ piperandscootboutique.com"""
         )
         
         response_content = response.choices[0].message.content
-        if not response_content:
-            raise Exception("Empty AI response")
+        if response_content:
+            suggestions = response_content.strip().split('\n')
             
-        suggestions = response_content.strip().split('\n')
-        domains = []
+            for suggestion in suggestions:
+                domain = suggestion.strip().lower()
+                # Remove any prefixes and clean
+                domain = domain.replace('http://', '').replace('https://', '').replace('www.', '')
+                if domain and '.' in domain and len(domain) > 4:
+                    # Avoid obviously wrong generic domains
+                    generic_domains = ['bad.com', 'heart.com', 'house.com', 'sugar.com', 'focused.com', 'beyond.com', 'angels.com']
+                    if domain not in generic_domains:
+                        domains.append(domain)
         
-        for suggestion in suggestions:
-            domain = suggestion.strip().lower()
-            # Remove any prefixes and clean
-            domain = domain.replace('http://', '').replace('https://', '').replace('www.', '')
-            if domain and '.' in domain and len(domain) > 4:
-                # Avoid obviously wrong generic domains
-                generic_domains = ['bad.com', 'heart.com', 'house.com', 'sugar.com', 'focused.com', 'beyond.com', 'angels.com']
-                if domain not in generic_domains:
-                    domains.append(domain)
-        
-        # Add manual fallback domains if AI didn't generate enough
-        if len(domains) < 3:
+    except Exception as ai_error:
+        logger.error(f"AI domain generation failed for {company_name}: {str(ai_error)}")
+    
+    # Add manual fallback domains if AI didn't generate enough or failed
+    if len(domains) < 3:
+        try:
             clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', company_name.lower())
             clean_name = re.sub(r'\s+', '', clean_name)
             
@@ -783,16 +786,19 @@ piperandscootboutique.com"""
             for fallback in fallback_domains:
                 if fallback not in domains and len(domains) < 3:
                     domains.append(fallback)
-        
-        logger.info(f"AI suggested domains for {company_name}: {domains}")
-        return domains[:3]  # Max 3 domains
-        
-    except Exception as e:
-        logger.error(f"AI domain generation failed for {company_name}: {str(e)}")
-        # Fallback to simple domain generation
-        clean_name = re.sub(r'[^a-zA-Z0-9\s]', '', company_name.lower())
-        clean_name = re.sub(r'\s+', '', clean_name)
-        return [f"{clean_name}.com", f"{clean_name}boutique.com"]
+        except Exception as fallback_error:
+            logger.error(f"Fallback domain generation failed for {company_name}: {str(fallback_error)}")
+    
+    # Ensure we always return at least one domain
+    if not domains:
+        try:
+            simple_name = re.sub(r'[^a-zA-Z0-9]', '', company_name.lower())
+            domains = [f"{simple_name}.com"]
+        except:
+            domains = ["example.com"]  # Last resort
+    
+    logger.info(f"Generated domains for {company_name}: {domains}")
+    return domains[:3]  # Max 3 domains
 
 def extract_real_emails_comprehensive(url, requests, company_name):
     """Comprehensive email extraction with relaxed validation"""
@@ -891,6 +897,8 @@ def find_real_emails_enhanced(company_name, location_data=None):
     """Enhanced email finding with web scraping + Instagram fallback"""
     import requests
     
+    website_found = None  # Initialize the variable
+    
     # First: Try web scraping (primary method)
     domains_to_try = generate_smart_domains_ai(company_name, location_data)
     
@@ -903,6 +911,8 @@ def find_real_emails_enhanced(company_name, location_data=None):
                 response = requests.get(website, headers=headers, timeout=4, allow_redirects=True)
                 
                 if response.status_code == 200:
+                    website_found = website  # Store the working website
+                    
                     # Check pages prioritizing wholesale and contact (fashion-focused)
                     pages_to_check = [
                         '/wholesale',           # #1 priority for fashion companies
@@ -924,27 +934,31 @@ def find_real_emails_enhanced(company_name, location_data=None):
                             if email:
                                 page_desc = f"{page}" if page else "homepage"
                                 return email, f"Real email from {website} ({page_desc})"
-                        except:
+                        except Exception as page_error:
+                            logger.error(f"Error checking page {page} for {company_name}: {str(page_error)}")
                             continue
                     
-                    # Found website but no emails - continue to Instagram fallback
-                    website_found = website
+                    # Found website but no emails - break to try Instagram
                     break
-            except:
+            except Exception as domain_error:
+                logger.error(f"Error checking domain {domain} for {company_name}: {str(domain_error)}")
                 continue
     
     # Fallback: Try Instagram if web scraping found no emails
-    logger.info(f"Web scraping found no emails for {company_name}, trying Instagram fallback...")
-    instagram_email, instagram_source = check_instagram_business_email(company_name)
+    try:
+        logger.info(f"Web scraping found no emails for {company_name}, trying Instagram fallback...")
+        instagram_email, instagram_source = check_instagram_business_email(company_name)
+        
+        if instagram_email:
+            return instagram_email, instagram_source
+    except Exception as instagram_error:
+        logger.error(f"Instagram fallback failed for {company_name}: {str(instagram_error)}")
     
-    if instagram_email:
-        return instagram_email, instagram_source
-    
-    # If website was found but no emails anywhere
-    if 'website_found' in locals():
+    # Return appropriate message based on what was found
+    if website_found:
         return None, f"Website found ({website_found}) but no emails detected (Instagram also checked)"
-    
-    return None, f"No website found for {company_name} (Instagram also checked)"
+    else:
+        return None, f"No website found for {company_name} (Instagram also checked)"
 
 @app.route('/health')
 def health():
