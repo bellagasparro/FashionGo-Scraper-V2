@@ -178,9 +178,10 @@ def upload_file():
         if not file.filename.lower().endswith(('.csv', '.xlsx')):
             return jsonify({'success': False, 'error': 'Please upload a CSV (.csv) or Excel (.xlsx) file'})
         
-        # Save uploaded file
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(tempfile.gettempdir(), filename)
+        # Save uploaded file with unique name to avoid conflicts
+        file_ext = '.xlsx' if file.filename.lower().endswith('.xlsx') else '.csv'
+        unique_filename = f"upload_{int(time.time())}_{file.filename}"
+        filepath = os.path.join(tempfile.gettempdir(), secure_filename(unique_filename))
         file.save(filepath)
         
         # Read the CSV or Excel file
@@ -228,8 +229,9 @@ def upload_file():
         # Create results DataFrame
         results_df = pd.DataFrame(results)
         
-        # Save results
-        output_filename = f"email_results_{int(time.time())}.xlsx"
+        # Save results with unique filename
+        timestamp = int(time.time())
+        output_filename = f"email_results_{timestamp}.xlsx"
         output_path = os.path.join(tempfile.gettempdir(), output_filename)
         results_df.to_excel(output_path, index=False)
         
@@ -270,13 +272,25 @@ def download_file(filename):
         from werkzeug.utils import secure_filename
         import tempfile
         
-        filepath = os.path.join(tempfile.gettempdir(), secure_filename(filename))
+        secure_name = secure_filename(filename)
+        filepath = os.path.join(tempfile.gettempdir(), secure_name)
+        
+        logger.info(f"Download requested for: {filename}")
+        logger.info(f"Looking for file at: {filepath}")
+        logger.info(f"File exists: {os.path.exists(filepath)}")
+        
         if os.path.exists(filepath):
             return send_file(filepath, as_attachment=True, download_name=filename)
         else:
-            return jsonify({'error': 'File not found'}), 404
+            logger.error(f"File not found: {filepath}")
+            # List files in temp directory for debugging
+            temp_files = os.listdir(tempfile.gettempdir())
+            email_files = [f for f in temp_files if 'email_results' in f]
+            logger.info(f"Available email result files: {email_files}")
+            return jsonify({'error': f'File not found: {filename}'}), 404
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Download error: {str(e)}")
+        return jsonify({'error': f'Download failed: {str(e)}'}), 500
 
 def generate_business_emails_ai(company_name, location_data=None):
     """Use OpenAI to generate most likely business email addresses"""
